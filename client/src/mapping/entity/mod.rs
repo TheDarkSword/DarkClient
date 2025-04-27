@@ -1,4 +1,4 @@
-use jni::objects::GlobalRef;
+use jni::objects::{GlobalRef, JValue};
 use crate::mapping::{FieldType, GameContext, MinecraftClassType};
 
 pub mod player;
@@ -55,6 +55,39 @@ impl Entity {
         ).d().unwrap();
 
         (x, y, z)
+    }
+
+    pub fn set_invulnerable(&self, value: bool) {
+        let mapping = self.mapping();
+
+        mapping.call_method(
+            MinecraftClassType::Entity,
+            self.jni_entity.as_obj(),
+            "setInvulnerable",
+            &[JValue::from(value)]
+        );
+    }
+    
+    pub fn get_fall_distance(&self) -> f64 {
+        let mapping = self.mapping();
+
+        mapping.get_field(
+            MinecraftClassType::Entity,
+            self.jni_entity.as_obj(),
+            "fallDistance",
+            FieldType::Double
+        ).d().unwrap()
+    }
+
+    pub fn reset_fall_distance(&self) {
+        let mapping = self.mapping();
+
+        mapping.call_method(
+            MinecraftClassType::Entity,
+            self.jni_entity.as_obj(),
+            "resetFallDistance",
+            &[]
+        ).v().unwrap();
     }
 
     pub fn get_name(&self) -> String {

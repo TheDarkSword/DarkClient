@@ -1,11 +1,12 @@
-extern crate ctor;
+#![cfg_attr(debug_assertions, allow(dead_code))]
+
 extern crate jni;
 mod client;
 mod mapping;
 mod module;
 
 use crate::client::DarkClient;
-use crate::module::FlyModule;
+use crate::module::{FlyModule, ModuleType};
 use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
@@ -129,7 +130,7 @@ fn register_modules(minecraft: &'static Minecraft) {
         minecraft.player.clone()
     )));
 
-    let register_module = |module: Arc<Mutex<dyn module::Module + Send + Sync>>| {
+    let register_module = |module: Arc<Mutex<ModuleType>>| {
         client.register_module(module);
     };
 

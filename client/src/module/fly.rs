@@ -1,5 +1,5 @@
 use crate::mapping::entity::player::LocalPlayer;
-use crate::module::{FlyModule, KeyboardKey, Module, ModuleData};
+use crate::module::{FlyModule, KeyboardKey, Module, ModuleCategory, ModuleData};
 
 impl FlyModule {
     pub fn new(player: LocalPlayer) -> Self {
@@ -7,6 +7,7 @@ impl FlyModule {
             module: ModuleData {
                 name: "Fly".to_string(),
                 description: "Enables flying".to_string(),
+                category: ModuleCategory::MOVEMENT,
                 key_bind: KeyboardKey::KeyF,
                 enabled: false,
                 player,
@@ -18,17 +19,17 @@ impl FlyModule {
 impl Module for FlyModule {
     
     fn on_start(&self) {
-        // Abilita il volo
-        //self.player.fly(true);
+        // Enables flying
+        self.module.player.abilities.fly(true);
     }
 
     fn on_stop(&self) {
-        // Disabilita il volo
-        //self.player.fly(false);
+        // Disables flying
+        self.module.player.abilities.fly(false);
     }
 
     fn on_tick(&self) {
-        // Nessuna logica necessaria per tick
+        // No operation
     }
 
     fn get_module_data(&self) -> &ModuleData {

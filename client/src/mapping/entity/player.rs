@@ -1,22 +1,23 @@
 use jni::objects::{GlobalRef, JValue};
 use jni::sys::jboolean;
-use crate::LogExpect;
 use crate::mapping::{FieldType, GameContext, Mapping, MinecraftClassType};
 use crate::mapping::entity::Entity;
 
 #[derive(Debug, Clone)]
 pub struct LocalPlayer {
     pub jni_ref: GlobalRef,
+    pub abilities: Abilities,
     pub entity: Entity,
-    //pub capabilities: PlayerCapabilities
 }
 
+
 #[derive(Debug, Clone)]
-pub struct PlayerCapabilities {
+pub struct Abilities {
     pub jni_ref: GlobalRef
 }
 
 impl GameContext for LocalPlayer {}
+impl GameContext for Abilities {}
 
 impl LocalPlayer {
     pub fn new(minecraft: &GlobalRef, mapping: &Mapping) -> Self {
@@ -28,47 +29,61 @@ impl LocalPlayer {
         ).l().unwrap();
         
         let player_ref = mapping.new_global_ref(player_obj);
-        
+        let abilities = Abilities::new(player_ref.clone(), mapping);
         let entity = Entity::new(player_ref.clone());
-
-        //let jni_capabilities = mapping.get_field(
-        //    MinecraftClassType::EntityPlayer,
-        //    &player_obj,
-        //    "capabilities",
-        //    FieldType::Object(MinecraftClassType::PlayerCapabilities, mapping)
-        //).l().unwrap();
-
-        //let capabilities = PlayerCapabilities {
-        //    jni_player_capabilities: mapping.new_global_ref(jni_capabilities)
-        //};
 
         Self {
             jni_ref: player_ref,
-            entity
-            //capabilities
+            abilities,
+            entity,
+        }
+    }
+}
+
+impl Abilities {
+    
+    pub fn new(player: GlobalRef, mapping: &Mapping) -> Self {
+        let jni_ref = mapping.call_method(
+            MinecraftClassType::Player,
+            &player,
+            "getAbilities",
+            &[]
+        ).l().unwrap();
+        Self {
+            jni_ref: mapping.new_global_ref(jni_ref),
         }
     }
 
-    //pub fn fly(&self, value: bool) {
-    //    self.capabilities.fly(value);
-    //}
-}
-
-impl GameContext for PlayerCapabilities {}
-
-impl PlayerCapabilities {
-
     pub fn fly(&self, value: bool) {
-        let client = self.client();
-        let mut env = client.get_env().unwrap();
+        let mapping = self.mapping();
 
         let value: jboolean = if value {1} else {0};
 
-        env.set_field(
+        mapping.set_field(
+            MinecraftClassType::Abilities,
             self.jni_ref.as_obj(),
-            "b",
-            "Z",
+            "flying",
+            FieldType::Boolean,
             JValue::Bool(value)
-        ).log_expect("Error 1");
+        );
+
+        mapping.set_field(
+            MinecraftClassType::Abilities,
+            self.jni_ref.as_obj(),
+            "mayfly",
+            FieldType::Boolean,
+            JValue::Bool(value)
+        );
+    }
+    
+    pub fn get_may_fly(&self) -> bool {
+        let mapping = self.mapping();
+
+        mapping.get_field(
+            MinecraftClassType::Abilities,
+            self.jni_ref.as_obj(),
+            "mayfly",
+            FieldType::Boolean
+        ).z().unwrap()
     }
 }

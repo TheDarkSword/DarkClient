@@ -5,14 +5,47 @@ pub mod fly;
 
 pub type ModuleType = dyn Module + Send + Sync;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ModuleCategory {
+    COMBAT,
+    MOVEMENT,
+    RENDER,
+    PLAYER,
+    WORLD,
+    MISC
+}
+
+impl ModuleCategory {
+    pub fn display_name(&self) -> &str {
+        match self {
+            ModuleCategory::COMBAT => "Combat",
+            ModuleCategory::MOVEMENT => "Movement",
+            ModuleCategory::RENDER => "Render",
+            ModuleCategory::PLAYER => "Player",
+            ModuleCategory::WORLD => "World",
+            ModuleCategory::MISC => "Misc"
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ModuleData {
     pub name: String,
     pub description: String,
+    pub category: ModuleCategory,
     pub key_bind: KeyboardKey,
     pub enabled: bool,
     pub player: LocalPlayer,
 }
+
+#[derive(Debug, Clone)]
+pub enum ModuleSetting {
+    Toggle { name: String, value: bool },
+    Slider { name: String, value: f32, min: f32, max: f32 },
+    Choice { name: String, value: usize, options: Vec<String> },
+    Color { name: String, value: [f32; 4] },
+}
+
 
 impl ModuleData {
     
@@ -27,8 +60,9 @@ pub trait Module: Debug {
     fn on_tick(&self);
 
     fn get_module_data(&self) -> &ModuleData;
-
     fn get_module_data_mut(&mut self) -> &mut ModuleData;
+    
+    
 }
 
 #[derive(Debug)]
