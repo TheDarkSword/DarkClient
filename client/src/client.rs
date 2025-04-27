@@ -1,4 +1,4 @@
-use crate::module::Module;
+use crate::module::{Module, ModuleType};
 use jni::sys::{jsize, JNI_GetCreatedJavaVMs, JNI_OK};
 use jni::{JNIEnv, JavaVM};
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use crate::LogExpect;
 #[derive(Debug)]
 pub struct DarkClient {
     pub(crate) jvm: Arc<JavaVM>,
-    modules: Arc<RwLock<HashMap<String, Arc<Mutex<dyn Module + Send + Sync>>>>>,
+    modules: Arc<RwLock<HashMap<String, Arc<Mutex<ModuleType>>>>>,
 }
 
 // Implementiamo Send e Sync manualmente per DarkClient
@@ -25,7 +25,7 @@ impl DarkClient {
         })
     }
 
-    
+
     pub unsafe fn new() -> Result<Self, &'static str> {
         let mut java_vm: *mut jni::sys::JavaVM = std::ptr::null_mut();
         let mut count: jsize = 0;
@@ -88,7 +88,7 @@ pub mod keyboard {
             let minecraft = Minecraft::instance();
             let client = DarkClient::instance();
             let mut env = client.get_env().unwrap();
-            
+
             let glfw_window = minecraft.window.get_window();
 
             let mut keys: HashSet<i32> = HashSet::new();
@@ -122,6 +122,9 @@ pub mod keyboard {
     }
 
     pub fn stop_keyboard_handler() {
+        if RUNNING.get().is_none() {
+            return;
+        }
         RUNNING.get().unwrap().store(false, std::sync::atomic::Ordering::Relaxed);
     }
     

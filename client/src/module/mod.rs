@@ -3,6 +3,8 @@ use crate::mapping::entity::player::LocalPlayer;
 
 pub mod fly;
 
+pub type ModuleType = dyn Module + Send + Sync;
+
 #[derive(Debug, Clone)]
 pub struct ModuleData {
     pub name: String,
@@ -34,7 +36,7 @@ pub struct FlyModule {
     pub module: ModuleData
 }
 
-// lwjgl key mappings
+// lwjgl key mapping
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[allow(dead_code)]

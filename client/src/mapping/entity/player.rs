@@ -2,7 +2,7 @@ use jni::objects::{GlobalRef, JValue};
 use jni::sys::jboolean;
 use crate::LogExpect;
 use crate::mapping::{FieldType, GameContext, Mapping, MinecraftClassType};
-use crate::mapping::entity::entity::Entity;
+use crate::mapping::entity::Entity;
 
 #[derive(Debug, Clone)]
 pub struct LocalPlayer {
@@ -65,7 +65,7 @@ impl PlayerCapabilities {
         let value: jboolean = if value {1} else {0};
 
         env.set_field(
-            &self.jni_ref.as_obj(),
+            self.jni_ref.as_obj(),
             "b",
             "Z",
             JValue::Bool(value)

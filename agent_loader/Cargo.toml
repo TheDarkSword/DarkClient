@@ -1,0 +1,20 @@
+[package]
+name = "agent_loader"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "agent_loader"
+crate-type = ["cdylib"]
+
+[features]
+default = ["ctor/used_linker"]
+used_linker = []
+
+[dependencies]
+ctor = "0.2.8"
+log = "0.4.25"
+simplelog = "0.12.2"
+libloading = "0.8.0"
+jvmti = "0.5.0"
+

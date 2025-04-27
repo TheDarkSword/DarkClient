@@ -1,7 +1,5 @@
 use jni::objects::GlobalRef;
 
-pub mod java;
-
 pub struct JavaList {
     pub jni_list: GlobalRef
 }

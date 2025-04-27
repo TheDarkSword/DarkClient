@@ -6,19 +6,25 @@ mod module;
 
 use crate::client::DarkClient;
 use crate::module::FlyModule;
-use ctor::*;
 use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::thread;
-use crate::client::keyboard::{start_keyboard_handler};
+use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
 use crate::mapping::client::minecraft::Minecraft;
 
-static mut TICK_THREAD: Option<thread::JoinHandle<()>> = None;
+static TICK_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
+
+// Flag to control if the client is running
+static RUNNING: AtomicBool = AtomicBool::new(false);
+
+fn tick_thread() -> &'static Mutex<Option<thread::JoinHandle<()>>> {
+    TICK_THREAD.get_or_init(|| Mutex::new(None))
+}
+
 
 pub trait LogExpect<T> {
     fn log_expect(self, msg: &str) -> T;
@@ -43,14 +49,22 @@ impl<T> LogExpect<T> for Option<T> {
 }
 
 #[no_mangle]
-#[ctor]
-fn load() {
-    // Inizializza il logger con configurazione per il file
-    WriteLogger::init(
+pub extern "C" fn initialize_client() {
+    // Make sure we can't initialize more than once
+    if RUNNING.swap(true, Ordering::SeqCst) {
+        info!("Client already initialized");
+        return;
+    }
+
+    // Initialize the logger
+    match WriteLogger::init(
         LevelFilter::Debug,
         Config::default(),
         File::create("dark_client.log").unwrap(),
-    ).unwrap();
+    ) {
+        Ok(_) => info!("Logger initialized"),
+        Err(e) => eprintln!("Error during logger initialization: {:?}", e),
+    }
 
     thread::spawn(|| {
         info!("Starting DarkClient...");
@@ -61,36 +75,51 @@ fn load() {
         start_keyboard_handler();
 
         // Tick thread
-        unsafe {
-            TICK_THREAD = Some(thread::spawn(move || {
-                let client = DarkClient::instance();
-                loop {
-                    // Aspetta il tick di Minecraft
-                    thread::sleep(Duration::from_millis(50)); // 20 ticks al secondo
-                    client.tick();
-                }
-            }));
-        }
+        let thread_handle = thread::spawn(move || {
+            let client = DarkClient::instance();
+            while RUNNING.load(Ordering::SeqCst) {
+                // Wait for Minecraft tick
+                thread::sleep(Duration::from_millis(50)); // 20 ticks per second
+                client.tick();
+            }
+            info!("Tick thread terminated");
+        });
+
+        // Memorize the thread handle in a thread-safe way
+        let mut tick_lock = tick_thread().lock().unwrap();
+        *tick_lock = Some(thread_handle);
+
 
         info!("Player position: {:?}", minecraft.player.entity.get_position());
     });
-
-    open_connection();
 }
 
+// Cleanup function for agent_loader
 #[no_mangle]
-#[dtor]
-fn unload() {
-    info!("Unload");
-}
+pub extern "C" fn cleanup_client() {
+    info!("Client cleanup in progress...");
 
-fn reload() {
-    info!("Reloading...");
-    /*unsafe {
-        if let Some(handle) = TICK_THREAD.take() {
-            handle.join().unwrap();
+    // Set the execution flag to false
+    RUNNING.store(false, Ordering::SeqCst);
+
+    // Stop the keyboard handler
+    stop_keyboard_handler();
+
+    // Wait for the tick thread to terminate
+    let thread_handle = {
+        let mut tick_lock = tick_thread().lock().unwrap();
+        tick_lock.take()
+    };
+
+    if let Some(handle) = thread_handle {
+        // Give a short timeout for waiting
+        if let Err(e) = handle.join() {
+            error!("Error while waiting for tick thread: {:?}", e);
         }
-    }*/
+    }
+
+    // Clean up other resources if necessary
+    info!("Client cleanup completed");
 }
 
 fn register_modules(minecraft: &'static Minecraft) {
@@ -105,54 +134,4 @@ fn register_modules(minecraft: &'static Minecraft) {
     };
 
     register_module(fly_module);
-}
-
-fn open_connection() {
-    thread::spawn(|| {
-        let addr = "127.0.0.1:7878";
-        let listener = match TcpListener::bind(addr) {
-            Ok(listener) => {
-                info!("Listening on {}", addr);
-                listener
-            },
-            Err(e) => {
-                error!("Failed to bind to {}: {}", addr, e);
-                return;
-            }
-        };
-
-        for conn in listener.incoming() {
-            match conn {
-                Ok(stream) => {
-                    let mut reader = BufReader::new(stream);
-
-                    let mut line = String::new();
-                    let bytes_read = match reader.read_line(&mut line) {
-                        Ok(br) => br,
-                        Err(e) => {
-                            error!("Failed to read line: {}", e);
-                            break;
-                        }
-                    };
-
-                    if bytes_read == 0 {
-                        break;
-                    }
-
-                    let command = line.trim();
-                    match command {
-                        "reload" => {
-                            reload();
-                        }
-                        other => {
-                            error!("Unknown command: {}", other);
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to accept connection: {}", e);
-                }
-            }
-        }
-    });
 }

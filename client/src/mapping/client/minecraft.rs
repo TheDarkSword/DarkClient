@@ -34,7 +34,7 @@ impl Minecraft {
         if minecraft.is_null() {
             error!("Minecraft is null")
         }
-        
+
         let minecraft = mapping.new_global_ref(minecraft);
 
         let player = LocalPlayer::new(&minecraft, &mapping);
