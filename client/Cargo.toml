@@ -1,0 +1,21 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["ctor/used_linker"]
+used_linker = []
+
+[dependencies]
+egui.workspace = true
+eframe.workspace = true
+log.workspace = true
+simplelog.workspace = true
+jni = "0.21.1"
+ctor = "0.2.8"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.135"
