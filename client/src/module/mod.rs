@@ -54,7 +54,7 @@ impl ModuleData {
     }
 }
 
-pub trait Module: Debug {
+pub trait Module: Debug + Send + Sync {
     fn on_start(&self);
     fn on_stop(&self);
     fn on_tick(&self);

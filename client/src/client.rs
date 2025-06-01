@@ -11,10 +11,6 @@ pub struct DarkClient {
     modules: Arc<RwLock<HashMap<String, Arc<Mutex<ModuleType>>>>>,
 }
 
-// Implementiamo Send e Sync manualmente per DarkClient
-unsafe impl Send for DarkClient {}
-unsafe impl Sync for DarkClient {}
-
 impl DarkClient {
 
     pub fn instance() -> &'static DarkClient {
@@ -66,7 +62,7 @@ impl DarkClient {
     }
 }
 
-// Modulo per gestire gli input da tastiera
+// Module for handling keyboard inputs
 pub mod keyboard {
     use std::collections::HashSet;
     use super::*;

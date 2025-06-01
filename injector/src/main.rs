@@ -7,7 +7,7 @@ use simplelog::{Config, WriteLogger};
 use std::fs::File;
 
 fn main() {
-    // Inizializza il logger con configurazione per il file
+    // Initialize the logger with a default configuration
     WriteLogger::init(
         LevelFilter::Debug,
         Config::default(),
@@ -68,7 +68,7 @@ impl eframe::App for InjectorGUI {
                 match platform::inject(self.pid.unwrap()) {
                     Ok(_) => self.status = "Injected successfully!".to_owned(),
                     Err(e) => {
-                        log::error!("Errore durante l'iniezione: {:?}", e);
+                        log::error!("Error during injection: {:?}", e);
                         self.status = format!("Failed to inject: {}", e)
                     },
                 }
