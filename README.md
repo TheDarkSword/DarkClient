@@ -1,4 +1,4 @@
-# 🎮 DarkClient - Minecraft Cheat Client
+# 🎮 DarkClient - Minecraft Injection Client
 
 ![Rust](https://img.shields.io/badge/Rust-1.87.0-orange.svg)
 ![License](https://img.shields.io/badge/License-GNU%20GPL-blue)
