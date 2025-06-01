@@ -77,8 +77,11 @@ python conversion.py
 
 1. **Launch the Injector**:
    ```bash
-   ./target/release/injector
+   cd target/release
+   ./injector
    ```
+> [!WARNING]
+> `libagent_loader` and `libclient` **must** be in the **same directory** where you run the injector.
 
 2. **Start Minecraft** and load into a world
 
