@@ -2,11 +2,11 @@ use crate::platform::{AGENT_NAME, LIBRARY_NAME, SOCKET_ADDRESS};
 use log::{error, info};
 use proc_maps::get_process_maps;
 use std::io::{Error, Write};
-use std::net::{TcpStream};
-use std::{path, thread};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
+use std::{path, thread};
 
 pub fn inject(pid: u32) -> Result<(), Error> {
     // First time: load the agent_loader
@@ -22,12 +22,16 @@ pub fn inject(pid: u32) -> Result<(), Error> {
             .arg(pid.to_string())
             .arg("JVMTI.agent_load")
             .arg(format!("{:?}", path::absolute(&loader_path)?))
-            .output() {
+            .output()
+        {
             Ok(output) if output.status.success() => {
                 info!("Agent Loader loaded via jcmd: {:?}", loader_path);
             }
             Ok(output) => {
-                error!("jcmd failed (stderr): {}", String::from_utf8_lossy(&output.stderr));
+                error!(
+                    "jcmd failed (stderr): {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
             Err(e) => {
                 error!("Unable to execute jcmd: {:?}", e);
@@ -62,7 +66,7 @@ pub fn inject(pid: u32) -> Result<(), Error> {
             if let Err(e) = stream.write(command.as_bytes()) {
                 error!("Unable to send reload command: {:?}", e);
             }
-        },
+        }
         Err(e) => {
             error!("Unable to connect to server: {:?}", e);
         }
@@ -114,7 +118,6 @@ pub fn find_pid() -> Option<u32> {
         .stdout(Stdio::piped())
         .output()
         .expect("Failed to execute `awk '{print $1}'` command");
-
 
     let result = String::from_utf8(output.stdout).expect("Failed to parse output");
 

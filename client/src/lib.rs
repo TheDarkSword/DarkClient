@@ -5,17 +5,17 @@ mod client;
 mod mapping;
 mod module;
 
+use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
 use crate::client::DarkClient;
+use crate::mapping::client::minecraft::Minecraft;
 use crate::module::{FlyModule, ModuleType};
 use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
-use std::sync::{Arc, Mutex, OnceLock};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
-use crate::mapping::client::minecraft::Minecraft;
+use std::time::Duration;
 
 static TICK_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
 
@@ -25,7 +25,6 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 fn tick_thread() -> &'static Mutex<Option<thread::JoinHandle<()>>> {
     TICK_THREAD.get_or_init(|| Mutex::new(None))
 }
-
 
 pub trait LogExpect<T> {
     fn log_expect(self, msg: &str) -> T;
@@ -90,8 +89,10 @@ pub extern "C" fn initialize_client() {
         let mut tick_lock = tick_thread().lock().unwrap();
         *tick_lock = Some(thread_handle);
 
-
-        info!("Player position: {:?}", minecraft.player.entity.get_position());
+        info!(
+            "Player position: {:?}",
+            minecraft.player.entity.get_position()
+        );
     });
 }
 
@@ -126,9 +127,7 @@ pub extern "C" fn cleanup_client() {
 fn register_modules(minecraft: &'static Minecraft) {
     let client = DarkClient::instance();
 
-    let fly_module = Arc::new(Mutex::new(FlyModule::new(
-        minecraft.player.clone()
-    )));
+    let fly_module = Arc::new(Mutex::new(FlyModule::new(minecraft.player.clone())));
 
     let register_module = |module: Arc<Mutex<ModuleType>>| {
         client.register_module(module);

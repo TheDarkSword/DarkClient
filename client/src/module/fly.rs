@@ -11,13 +11,12 @@ impl FlyModule {
                 key_bind: KeyboardKey::KeyF,
                 enabled: false,
                 player,
-            }
+            },
         }
     }
 }
 
 impl Module for FlyModule {
-    
     fn on_start(&self) {
         // Enables flying
         self.module.player.abilities.fly(true);
@@ -35,7 +34,7 @@ impl Module for FlyModule {
     fn get_module_data(&self) -> &ModuleData {
         &self.module
     }
-    
+
     fn get_module_data_mut(&mut self) -> &mut ModuleData {
         &mut self.module
     }

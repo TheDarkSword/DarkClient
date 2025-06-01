@@ -1,9 +1,9 @@
 use crate::module::{Module, ModuleType};
+use crate::LogExpect;
 use jni::sys::{jsize, JNI_GetCreatedJavaVMs, JNI_OK};
 use jni::{JNIEnv, JavaVM};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use crate::LogExpect;
 
 #[derive(Debug)]
 pub struct DarkClient {
@@ -12,7 +12,6 @@ pub struct DarkClient {
 }
 
 impl DarkClient {
-
     pub fn instance() -> &'static DarkClient {
         static INSTANCE: OnceLock<Arc<DarkClient>> = OnceLock::new();
 
@@ -20,7 +19,6 @@ impl DarkClient {
             Arc::new(DarkClient::new().log_expect("Failed to create DarkClient"))
         })
     }
-
 
     pub unsafe fn new() -> Result<Self, &'static str> {
         let mut java_vm: *mut jni::sys::JavaVM = std::ptr::null_mut();
@@ -32,12 +30,12 @@ impl DarkClient {
 
         let java_vm: Arc<JavaVM> = Arc::new(match JavaVM::from_raw(java_vm) {
             Ok(jvm) => jvm,
-            Err(_) => return Err("Could not get JavaVM")
+            Err(_) => return Err("Could not get JavaVM"),
         });
 
         Ok(DarkClient {
             jvm: java_vm,
-            modules: Arc::new(RwLock::new(HashMap::new()))
+            modules: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -64,15 +62,15 @@ impl DarkClient {
 
 // Module for handling keyboard inputs
 pub mod keyboard {
-    use std::collections::HashSet;
     use super::*;
+    use crate::mapping::client::minecraft::Minecraft;
     use jni::objects::JValue;
+    use jni::sys::jlong;
+    use log::info;
+    use std::collections::HashSet;
     use std::sync::atomic::AtomicBool;
     use std::thread;
     use std::time::Duration;
-    use jni::sys::jlong;
-    use log::info;
-    use crate::mapping::client::minecraft::Minecraft;
 
     static RUNNING: OnceLock<AtomicBool> = OnceLock::new();
 
@@ -88,20 +86,28 @@ pub mod keyboard {
             let glfw_window = minecraft.window.get_window();
 
             let mut keys: HashSet<i32> = HashSet::new();
-            while RUNNING.get().unwrap().load(std::sync::atomic::Ordering::Relaxed) {
+            while RUNNING
+                .get()
+                .unwrap()
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
                 thread::sleep(Duration::from_millis(100));
 
                 client.modules.read().unwrap().values().for_each(|module| {
                     let mut module = module.lock().unwrap();
                     let module_data = module.get_module_data();
                     let key = module_data.key_bind as i32;
-                    
+
                     if is_key_down(&mut env, glfw_window, key) {
                         if !keys.contains(&key) {
                             keys.insert(key);
-                            
+
                             let enabled = !module_data.enabled;
-                            info!("{} {}", module_data.name, if enabled {"enabled"} else {"disabled"});
+                            info!(
+                                "{} {}",
+                                module_data.name,
+                                if enabled { "enabled" } else { "disabled" }
+                            );
                             if enabled {
                                 module.on_start();
                             } else {
@@ -121,16 +127,23 @@ pub mod keyboard {
         if RUNNING.get().is_none() {
             return;
         }
-        RUNNING.get().unwrap().store(false, std::sync::atomic::Ordering::Relaxed);
+        RUNNING
+            .get()
+            .unwrap()
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
-    
+
     fn is_key_down(env: &mut JNIEnv, glfw_window: jlong, key: i32) -> bool {
         let glfw = env.find_class("org/lwjgl/glfw/GLFW").unwrap();
         env.call_static_method(
             glfw,
             "glfwGetKey",
             "(JI)I",
-            &[JValue::Long(glfw_window), JValue::Int(key)]
-        ).unwrap().i().unwrap() == 1
+            &[JValue::Long(glfw_window), JValue::Int(key)],
+        )
+        .unwrap()
+        .i()
+        .unwrap()
+            == 1
     }
 }

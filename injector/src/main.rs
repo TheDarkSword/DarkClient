@@ -12,7 +12,8 @@ fn main() {
         LevelFilter::Debug,
         Config::default(),
         File::create("app.log").unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -24,27 +25,26 @@ fn main() {
     eframe::run_native(
         "DarkClient Injector",
         native_options,
-        Box::new(|creation_context|
-            Ok(Box::new(InjectorGUI::new(creation_context)))),
-    ).expect("Failed to run the GUI");
+        Box::new(|creation_context| Ok(Box::new(InjectorGUI::new(creation_context)))),
+    )
+    .expect("Failed to run the GUI");
 }
 
 pub struct InjectorGUI {
     status: String,
-    pid: Option<u32>
+    pid: Option<u32>,
 }
 
 impl InjectorGUI {
     pub fn new(_creation_context: &CreationContext<'_>) -> Self {
         Self {
             status: "Hello, welcome to DarkClient Injector:".to_owned(),
-            pid: None
+            pid: None,
         }
     }
 }
 
 impl eframe::App for InjectorGUI {
-
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("DarkClient Injector");
@@ -70,7 +70,7 @@ impl eframe::App for InjectorGUI {
                     Err(e) => {
                         log::error!("Error during injection: {:?}", e);
                         self.status = format!("Failed to inject: {}", e)
-                    },
+                    }
                 }
             }
         });

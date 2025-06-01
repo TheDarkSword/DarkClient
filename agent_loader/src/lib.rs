@@ -3,6 +3,8 @@ extern crate log;
 extern crate simplelog;
 
 use ctor::*;
+use jvmti::agent::Agent;
+use jvmti::native::jvmti_native::{jsize, JNI_GetCreatedJavaVMs, JavaVM};
 use libloading::{Library, Symbol};
 use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
@@ -12,10 +14,8 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::{path, thread};
 use std::time::Duration;
-use jvmti::agent::Agent;
-use jvmti::native::jvmti_native::{jsize, JNI_GetCreatedJavaVMs, JavaVM};
+use std::{path, thread};
 
 // Global variable to keep track of the loaded library
 static CLIENT_LIBRARY: OnceLock<Mutex<Option<Library>>> = OnceLock::new();
@@ -30,13 +30,14 @@ fn agent_onload() {
         LevelFilter::Debug,
         Config::default(),
         File::create("agent_loader.log").unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     info!("Agent Loader initialized");
 
     // Initialize the global variable for the library
     CLIENT_LIBRARY.get_or_init(|| Mutex::new(None));
-    
+
     unsafe {
         if let Err(e) = register_agent() {
             error!("Failed to register agent: {}", e);
@@ -55,13 +56,13 @@ unsafe fn register_agent() -> Result<(), &'static str> {
     if JNI_GetCreatedJavaVMs(&mut java_vm, 1, &mut count) != 0 || count == 0 {
         return Err("Failed to get Java VMs");
     }
-    
+
     let mut agent = Agent::new(java_vm);
-    
+
     agent.on_vm_death(Some(on_vm_death));
-    
+
     agent.update();
-    
+
     Ok(())
 }
 
@@ -168,7 +169,8 @@ fn reload_client_library(lib_path: &str) -> Result<(), Box<dyn std::error::Error
 
     // Copy the file if necessary to avoid lock issues
     let client_path = PathBuf::from(lib_path);
-    let filename = client_path.file_name()
+    let filename = client_path
+        .file_name()
         .ok_or("Invalid file name")?
         .to_str()
         .ok_or("Invalid file name (Unicode)")?;
@@ -187,7 +189,8 @@ fn reload_client_library(lib_path: &str) -> Result<(), Box<dyn std::error::Error
     std::fs::copy(&client_path, &temp_path)?;
     info!("Library copied to: {:?}", temp_path);
 
-    let temp_client = path::absolute(&temp_path).map_err(|e| format!("Unable to get absolute path: {:?}", e))?;
+    let temp_client =
+        path::absolute(&temp_path).map_err(|e| format!("Unable to get absolute path: {:?}", e))?;
     let temp_client = format!("{:?}", temp_client.to_string_lossy());
     let temp_client = temp_client.as_str();
     let temp_client = temp_client.trim_matches(|c| c == '"' || c == '\'');
@@ -218,7 +221,7 @@ fn start_command_server() {
             Ok(listener) => {
                 info!("Listening on {}", addr);
                 listener
-            },
+            }
             Err(e) => {
                 error!("Unable to bind to {}: {}", addr, e);
                 return;
@@ -250,20 +253,20 @@ fn start_command_server() {
                                 } else {
                                     error!("Reload command received without path!");
                                 }
-                            },
+                            }
                             Some(other) => {
                                 error!("Unknown command: {}", other);
-                            },
+                            }
                             None => {
                                 error!("Empty command received");
                             }
                         }
                     }
-                },
+                }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     // No connection available, wait a bit
                     thread::sleep(Duration::from_millis(100));
-                },
+                }
                 Err(e) => {
                     error!("Error while accepting connection: {}", e);
                     // Short pause to avoid infinite loops in case of errors
