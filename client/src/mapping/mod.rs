@@ -3,10 +3,10 @@ use crate::mapping::client::minecraft::Minecraft;
 use crate::LogExpect;
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue, JValueOwned};
 use jni::JNIEnv;
+use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
-use serde::de::{MapAccess, Visitor};
 
 pub mod client;
 pub mod entity;
@@ -113,10 +113,11 @@ impl MinecraftClass {
     pub fn get_method(&self, name: &str) -> &Method {
         self.methods
             .get(name)
-            .unwrap().first()
+            .unwrap()
+            .first()
             .log_expect(format!("{} method not found", name).as_str())
     }
-    
+
     pub fn get_methods(&self, name: &str) -> &Vec<Method> {
         self.methods
             .get(name)
@@ -151,7 +152,9 @@ impl MinecraftClass {
                 return method;
             }
 
-            if match_quality == SignatureMatch::Compatible && best_match_quality != SignatureMatch::Exact {
+            if match_quality == SignatureMatch::Compatible
+                && best_match_quality != SignatureMatch::Exact
+            {
                 best_method = Some(method);
                 best_match_quality = match_quality;
             }
@@ -159,7 +162,11 @@ impl MinecraftClass {
 
         match best_method {
             Some(method) => {
-                log::debug!("Using compatible method '{}' with signature '{}' for args", name, method.signature);
+                log::debug!(
+                    "Using compatible method '{}' with signature '{}' for args",
+                    name,
+                    method.signature
+                );
                 method
             }
             None => {
@@ -173,7 +180,11 @@ impl MinecraftClass {
     }
 
     /// Evaluates how well a method signature matches the provided arguments
-    fn evaluate_signature_compatibility(&self, method_signature: &str, args: &[JValue]) -> SignatureMatch {
+    fn evaluate_signature_compatibility(
+        &self,
+        method_signature: &str,
+        args: &[JValue],
+    ) -> SignatureMatch {
         let param_types = match self.extract_parameter_types(method_signature) {
             Ok(types) => types,
             Err(_) => return SignatureMatch::Incompatible,
@@ -210,8 +221,12 @@ impl MinecraftClass {
     /// # Example
     /// `(ILjava/lang/String;)V` -> `["I", "Ljava/lang/String;"]`
     fn extract_parameter_types(&self, signature: &str) -> Result<Vec<String>, &'static str> {
-        let start = signature.find('(').ok_or("Invalid signature: missing opening parenthesis")?;
-        let end = signature.find(')').ok_or("Invalid signature: missing closing parenthesis")?;
+        let start = signature
+            .find('(')
+            .ok_or("Invalid signature: missing opening parenthesis")?;
+        let end = signature
+            .find(')')
+            .ok_or("Invalid signature: missing closing parenthesis")?;
 
         if start >= end {
             return Err("Invalid signature: malformed parentheses");
@@ -284,23 +299,39 @@ impl MinecraftClass {
             ("D", JValue::Double(_)) => SignatureMatch::Exact,
 
             // Numeric type promotions (compatible matches)
-            ("I", JValue::Byte(_) | JValue::Short(_) | JValue::Char(_)) => SignatureMatch::Compatible,
-            ("J", JValue::Byte(_) | JValue::Short(_) | JValue::Char(_) | JValue::Int(_)) => SignatureMatch::Compatible,
-            ("F", JValue::Byte(_) | JValue::Short(_) | JValue::Char(_) | JValue::Int(_)) => SignatureMatch::Compatible,
-            ("D", JValue::Byte(_) | JValue::Short(_) | JValue::Char(_) | JValue::Int(_) | JValue::Long(_) | JValue::Float(_)) => SignatureMatch::Compatible,
+            ("I", JValue::Byte(_) | JValue::Short(_) | JValue::Char(_)) => {
+                SignatureMatch::Compatible
+            }
+            ("J", JValue::Byte(_) | JValue::Short(_) | JValue::Char(_) | JValue::Int(_)) => {
+                SignatureMatch::Compatible
+            }
+            ("F", JValue::Byte(_) | JValue::Short(_) | JValue::Char(_) | JValue::Int(_)) => {
+                SignatureMatch::Compatible
+            }
+            (
+                "D",
+                JValue::Byte(_)
+                | JValue::Short(_)
+                | JValue::Char(_)
+                | JValue::Int(_)
+                | JValue::Long(_)
+                | JValue::Float(_),
+            ) => SignatureMatch::Compatible,
 
             // Object types - with proper type checking
-            (jni_type, JValue::Object(obj)) if jni_type.starts_with('L') && jni_type.ends_with(';') => unsafe {
-                self.check_object_type_compatibility(jni_type, obj)
-            }
+            (jni_type, JValue::Object(obj))
+                if jni_type.starts_with('L') && jni_type.ends_with(';') =>
+            unsafe { self.check_object_type_compatibility(jni_type, obj) },
 
             // Arrays
             (jni_type, JValue::Object(obj)) if jni_type.starts_with('[') => unsafe {
                 self.check_array_type_compatibility(jni_type, obj)
-            }
+            },
 
             // Null handling - null can be assigned to any object type
-            (jni_type, JValue::Object(obj)) if jni_type.starts_with('L') || jni_type.starts_with('[') => {
+            (jni_type, JValue::Object(obj))
+                if jni_type.starts_with('L') || jni_type.starts_with('[') =>
+            {
                 if obj.is_null() {
                     SignatureMatch::Compatible
                 } else {
@@ -313,7 +344,11 @@ impl MinecraftClass {
     }
 
     /// Checks if an object matches the expected JNI object type signature
-    unsafe fn check_object_type_compatibility(&self, expected_type: &str, obj: &JObject) -> SignatureMatch {
+    unsafe fn check_object_type_compatibility(
+        &self,
+        expected_type: &str,
+        obj: &JObject,
+    ) -> SignatureMatch {
         // Handle null objects - they're compatible with any object type
         if obj.is_null() {
             return SignatureMatch::Compatible;
@@ -321,7 +356,7 @@ impl MinecraftClass {
 
         // Get the actual class name from the JNI type signature
         // Convert "Ljava/lang/String;" to "java/lang/String"
-        let expected_class_name = &expected_type[1..expected_type.len()-1];
+        let expected_class_name = &expected_type[1..expected_type.len() - 1];
 
         // Special case for java.lang.Object - everything is compatible
         if expected_class_name == "java/lang/Object" {
@@ -361,7 +396,11 @@ impl MinecraftClass {
     }
 
     /// Checks if an array object matches the expected JNI array type signature
-    unsafe fn check_array_type_compatibility(&self, expected_type: &str, obj: &JObject) -> SignatureMatch {
+    unsafe fn check_array_type_compatibility(
+        &self,
+        expected_type: &str,
+        obj: &JObject,
+    ) -> SignatureMatch {
         // Handle null arrays
         if obj.is_null() {
             return SignatureMatch::Compatible;
@@ -392,7 +431,11 @@ impl MinecraftClass {
     }
 
     /// Gets the class name from a JClass object
-    unsafe fn get_class_name_from_object(&self, env: &mut JNIEnv, class: &JClass) -> Result<String, Box<dyn std::error::Error>> {
+    unsafe fn get_class_name_from_object(
+        &self,
+        env: &mut JNIEnv,
+        class: &JClass,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         // Get the Class.getName() method to retrieve the class name
         let class_class = env.find_class("java/lang/Class")?;
         let get_name_method = env.get_method_id(&class_class, "getName", "()Ljava/lang/String;")?;
@@ -402,7 +445,7 @@ impl MinecraftClass {
             class,
             get_name_method,
             jni::signature::ReturnType::Object,
-            &[]
+            &[],
         )?;
 
         if let JValueOwned::Object(name_str) = name_obj {
@@ -448,9 +491,10 @@ impl MinecraftClass {
     /// Checks if two array types are compatible
     fn are_compatible_array_types(&self, actual_type: &str, expected_type: &str) -> bool {
         // Extract the component types from both array signatures
-        if let (Some(actual_component), Some(expected_component)) =
-            (self.extract_array_component_type(actual_type), self.extract_array_component_type(expected_type)) {
-
+        if let (Some(actual_component), Some(expected_component)) = (
+            self.extract_array_component_type(actual_type),
+            self.extract_array_component_type(expected_type),
+        ) {
             // For primitive arrays, they must match exactly
             if actual_component.len() == 1 && expected_component.len() == 1 {
                 return actual_component == expected_component;
@@ -458,8 +502,8 @@ impl MinecraftClass {
 
             // For object arrays, check object compatibility
             if actual_component.starts_with('L') && expected_component.starts_with('L') {
-                let actual_class = &actual_component[1..actual_component.len()-1];
-                let expected_class = &expected_component[1..expected_component.len()-1];
+                let actual_class = &actual_component[1..actual_component.len() - 1];
+                let expected_class = &expected_component[1..expected_component.len() - 1];
                 return self.are_compatible_types(actual_class, expected_class);
             }
         }
@@ -713,21 +757,17 @@ mod tests {
             Vec::<String>::new()
         );
 
-        assert_eq!(
-            class.extract_parameter_types("(I)V").unwrap(),
-            vec!["I"]
-        );
+        assert_eq!(class.extract_parameter_types("(I)V").unwrap(), vec!["I"]);
 
         assert_eq!(
-            class.extract_parameter_types("(ILjava/lang/String;F)V").unwrap(),
+            class
+                .extract_parameter_types("(ILjava/lang/String;F)V")
+                .unwrap(),
             vec!["I", "Ljava/lang/String;", "F"]
         );
 
         // Test arrays
-        assert_eq!(
-            class.extract_parameter_types("([I)V").unwrap(),
-            vec!["[I"]
-        );
+        assert_eq!(class.extract_parameter_types("([I)V").unwrap(), vec!["[I"]);
     }
 
     #[test]
