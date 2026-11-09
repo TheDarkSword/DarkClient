@@ -203,7 +203,7 @@ mod tests {
     }
 
     /// Parses every class of a real client jar — run with
-    /// `MC_JAR=/path/to/client.jar cargo test -p mc_bindgen -- --ignored`
+    /// `MC_JAR=/path/to/client.jar cargo test -p mc-bindgen -- --ignored`
     /// to check the parser against a new Minecraft / Java release.
     #[test]
     #[ignore]

@@ -1,5 +1,5 @@
 [package]
-name = "mapping_derive"
+name = "mapping-derive"
 version.workspace = true
 edition.workspace = true
 

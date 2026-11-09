@@ -1,10 +1,12 @@
 [package]
-name = "agent_loader"
+name = "agent-loader"
 version.workspace = true
 edition.workspace = true
 build = "build.rs"
 
 [lib]
+# Keeps the artifact `libagent_loader.so` / `agent_loader.dll`, which the
+# injector and CI look for.
 name = "agent_loader"
 crate-type = ["cdylib"]
 # No unit tests: the agent only does meaningful work inside a live JVM

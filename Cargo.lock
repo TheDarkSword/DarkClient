@@ -125,7 +125,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
-name = "agent_loader"
+name = "agent-loader"
 version = "0.1.0"
 dependencies = [
  "ctor",
@@ -680,8 +680,8 @@ dependencies = [
  "libc",
  "libloading 0.9.0",
  "log",
- "mapping_derive",
- "mc_versions",
+ "mapping-derive",
+ "mc-versions",
  "protocol",
  "serde",
  "serde_json",
@@ -1665,7 +1665,7 @@ dependencies = [
  "is_elevated",
  "libc",
  "log",
- "mc_versions",
+ "mc-versions",
  "proc-maps",
  "protocol",
  "ptrace-inject",
@@ -1899,7 +1899,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mapping_derive"
+name = "mapping-derive"
 version = "0.1.0"
 dependencies = [
  "quote",
@@ -1907,7 +1907,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mc_bindgen"
+name = "mc-bindgen"
 version = "0.1.0"
 dependencies = [
  "noak",
@@ -1918,7 +1918,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mc_versions"
+name = "mc-versions"
 version = "0.1.0"
 
 [[package]]
@@ -4287,8 +4287,8 @@ checksum = "af4e2e2f7cba5a093896c1e150fbfe177d1883e7448200efb81d40b9d339ef26"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "mc_bindgen",
- "mc_versions",
+ "mc-bindgen",
+ "mc-versions",
 ]
 
 [[package]]

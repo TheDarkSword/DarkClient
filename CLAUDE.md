@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DarkClient is a Minecraft (Java Edition) modification framework written in Rust. It injects native libraries into a running Minecraft JVM and drives the game through JNI. It targets **unobfuscated** Minecraft 26.x — vanilla, Fabric and Forge/NeoForge alike — and only the exact version ids in `mc_versions::SUPPORTED_VERSIONS`; anything else (snapshots included) is refused unless the user forces it. Obfuscated Minecraft (≤ 1.21.11) is not supported.
 
-It is a Cargo workspace of seven crates — `mc_versions`, `protocol`, `injector`, `agent_loader`, `client`, `mapping_derive`, `mc_bindgen` — plus an `xtask` helper. `default-members` leaves the tooling (`mc_bindgen`, `xtask`) out of a plain `cargo build` / `cargo check`; `--workspace` includes it.
+It is a Cargo workspace of seven crates — `mc-versions`, `protocol`, `injector`, `agent-loader`, `client`, `mapping-derive`, `mc-bindgen` — plus an `xtask` helper. `default-members` leaves the tooling (`mc-bindgen`, `xtask`) out of a plain `cargo build` / `cargo check`; `--workspace` includes it.
 
 ## Build & Common Commands
 
@@ -23,29 +23,29 @@ cargo xtask mc-dump --supported    # refresh mc-data/dumps from Mojang's jars (n
 ```
 
 - **Always build `--release` for runtime artifacts.** The release profile (`opt-level = "s"`, `lto = true`) is what CI and runtime expect; debug builds also silence `dead_code` warnings via `lib.rs`.
-- **Windows requires the nightly toolchain** (see `.github/workflows/build.yml`) and a discoverable `jvm.lib`; `client/build.rs` and `agent_loader/build.rs` locate it via `JAVA_HOME` or `JVM_LIB_DIR`. On Linux `client/build.rs` links `libjvm.so` (located via `java-locator`) so the test executables resolve JNI symbols. JDK 21+ required.
+- **Windows requires the nightly toolchain** (see `.github/workflows/build.yml`) and a discoverable `jvm.lib`; `client/build.rs` and `agent-loader/build.rs` locate it via `JAVA_HOME` or `JVM_LIB_DIR`. On Linux `client/build.rs` links `libjvm.so` (located via `java-locator`) so the test executables resolve JNI symbols. JDK 21+ required.
 - Running the `injector` needs root (`sudo`) on Linux / Administrator on Windows. `libagent_loader` and `libclient` must sit next to the injector executable or in its working directory.
 
 ## Crate Roles
 
-- **`mc_versions/`** — dependency-free: `MinecraftVersion` (parse/order version ids) and `SUPPORTED_VERSIONS` / `is_supported`, shared by injector and client.
-- **`protocol/`** — small library shared by `injector`, `agent_loader` and `client`: the localhost socket address (`SOCKET_ADDR`), the `Command` (injector → agent) and `Response` (agent → injector) line formats with `encode`/`decode`, the agent ↔ client C ABI (`client_abi`: symbol names, `StartFn` signature, status codes), and a non-panicking file-logger helper.
-- **`injector/`** — standalone binary. A redesigned egui GUI (`gui/`); `--tui` for a crossterm TUI; `--list` / `--inject <pid> [--force]` headless modes. Discovers Minecraft processes — reading the game version from `--fml.mcVersion` (Forge/NeoForge) or the `version.json` of the client jar on the class/module path (vanilla/Fabric); `--version` is only the launcher profile name — refuses a known unsupported version unless forced (GUI checkbox, TUI `f`, `--force`), injects `agent_loader`, then drives the client and shows its reply. UI-agnostic core in `app.rs`; injection orchestration in `inject.rs`; the platform layer (`platform/`) is an `AgentInjector` trait with `linux` / `windows` / `macos` implementations.
-- **`agent_loader/`** — `cdylib` injected first. A `#[ctor]` runs on load. Split into focused modules: `logging`, `jvm` (discovery + health monitor), `server` (TCP accept loop), `command` (dispatch), `library` (client lifecycle), `platform` (signal handlers).
+- **`mc-versions/`** — dependency-free: `MinecraftVersion` (parse/order version ids) and `SUPPORTED_VERSIONS` / `is_supported`, shared by injector and client.
+- **`protocol/`** — small library shared by `injector`, `agent-loader` and `client`: the localhost socket address (`SOCKET_ADDR`), the `Command` (injector → agent) and `Response` (agent → injector) line formats with `encode`/`decode`, the agent ↔ client C ABI (`client_abi`: symbol names, `StartFn` signature, status codes), and a non-panicking file-logger helper.
+- **`injector/`** — standalone binary. A redesigned egui GUI (`gui/`); `--tui` for a crossterm TUI; `--list` / `--inject <pid> [--force]` headless modes. Discovers Minecraft processes — reading the game version from `--fml.mcVersion` (Forge/NeoForge) or the `version.json` of the client jar on the class/module path (vanilla/Fabric); `--version` is only the launcher profile name — refuses a known unsupported version unless forced (GUI checkbox, TUI `f`, `--force`), injects `agent-loader`, then drives the client and shows its reply. UI-agnostic core in `app.rs`; injection orchestration in `inject.rs`; the platform layer (`platform/`) is an `AgentInjector` trait with `linux` / `windows` / `macos` implementations.
+- **`agent-loader/`** — `cdylib` injected first. A `#[ctor]` runs on load. Split into focused modules: `logging`, `jvm` (discovery + health monitor), `server` (TCP accept loop), `command` (dispatch), `library` (client lifecycle), `platform` (signal handlers).
 - **`client/`** — `cdylib`, the actual mod framework. JNI-driven game interaction, OpenGL overlay, module system.
-- **`mapping_derive/`** — `proc-macro` crate. Provides `#[derive(MappedObject)]` for the JVM-object wrappers in `client` (see *Game wrappers* below).
-- **`mc_bindgen/`** — tooling only, never linked into the shipped crates: downloads a version's client jar (`fetch`, system `curl`, SHA-1-checked, cached in `target/mc-cache/`), reads class files with `noak` (`classfile`), and reads/writes version dumps (`dump`).
+- **`mapping-derive/`** — `proc-macro` crate. Provides `#[derive(MappedObject)]` for the JVM-object wrappers in `client` (see *Game wrappers* below).
+- **`mc-bindgen/`** — tooling only, never linked into the shipped crates: downloads a version's client jar (`fetch`, system `curl`, SHA-1-checked, cached in `target/mc-cache/`), reads class files with `noak` (`classfile`), and reads/writes version dumps (`dump`).
 - **`xtask/`** — workspace task runner; `cargo xtask e2e` is the manual Tier-3 test, `cargo xtask mc-dump` writes the version dumps.
 - **`mc-data/`** (data, not a crate) — `classes.txt` lists every Minecraft class the client binds; `dumps/<version>.txt` holds, for each supported version, those classes and their supertypes with every non-synthetic field and method (name, descriptor, flags), sorted so the diff between two versions shows what changed.
 
 ## Injection & Hot-Reload Flow
 
-This is the core control flow and spans `injector`, `protocol`, `agent_loader`, `client`:
+This is the core control flow and spans `injector`, `protocol`, `agent-loader`, `client`:
 
 1. `injector` injects `libagent_loader.so`/`.dll` into the JVM process — ptrace (`ptrace-inject`) on Linux, `dll-syringe` on Windows.
-2. `agent_loader`'s `#[ctor]` `agent_onload()` starts a TCP server on `protocol::SOCKET_ADDR` (**`127.0.0.1:7878`** — defined once, in `protocol`).
+2. `agent-loader`'s `#[ctor]` `agent_onload()` starts a TCP server on `protocol::SOCKET_ADDR` (**`127.0.0.1:7878`** — defined once, in `protocol`).
 3. `injector` connects and sends a `protocol::Command::Reload { library, config_dir, force }` — the absolute libclient path, the injector's own working directory and the version-check override. The agent loader exports `config_dir` as the `DARK_CONFIG_DIR` env var so the client knows where to keep its config.
-4. `agent_loader`'s `library` module copies the library to a uniquely named temp file (avoids file locks), `dlopen`s it, and calls the exported `start_client`. The client builds its `Mapping`, reads the running version and, if it is not supported (and not forced), returns `UNSUPPORTED` without installing anything; the agent then cleans it up and drops it. The agent answers the injector with a `protocol::Response` (`started` / `unsupported` / `failed`) on the same connection.
+4. `agent-loader`'s `library` module copies the library to a uniquely named temp file (avoids file locks), `dlopen`s it, and calls the exported `start_client`. The client builds its `Mapping`, reads the running version and, if it is not supported (and not forced), returns `UNSUPPORTED` without installing anything; the agent then cleans it up and drops it. The agent answers the injector with a `protocol::Response` (`started` / `unsupported` / `failed`) on the same connection.
 5. Re-injecting repeats step 3 → `library::reload` cleans up and drops the old library (calling `cleanup_client`) before loading the new one. This is the hot-reload path.
 
 `client` exposes exactly two `#[no_mangle] extern "C"` symbols, typed by `protocol::client_abi`: `start_client` and `cleanup_client`. `start_client` runs `state::init_mapping()` and the version check synchronously, then spawns a thread that calls `state::init_client()`, `register_modules()`, `config::load()` and installs hooks — in that fixed order.
@@ -72,7 +72,7 @@ This is the core control flow and spans `injector`, `protocol`, `agent_loader`, 
 
 **Config persistence** (`config.rs`): each module's keybind, setting values and enabled state — plus the GUI layout (category-panel positions and which modules are expanded) — are written to `dark_client_config.json` so they survive a re-injection. The file lives in the **injector's working directory** (passed via `DARK_CONFIG_DIR`) — deliberately *not* in `.minecraft`, to leave no trace in the game directory; it falls back to the process working directory if the variable is unset. `config::save()` runs whenever the user changes something (GUI close, module toggle, "Reset Settings", and before a Panic unload); `config::load()` runs once, right after `register_modules()`, and re-applies the saved state — re-enabling modules that were left on.
 
-**Game wrappers** (`mapping/client/`, `mapping/entity/`): `Minecraft` holds only what exists from the main menu onward — the `getInstance()` handle and the `Window`. The world-scoped objects are lazy accessors — `player()`, `world()`, `game_mode()` return `Result<Option<_>>`, where `Ok(None)` means "not in a world". This lets the client be injected from the main menu; world-dependent modules early-return when `None`. Each wrapper of a live JVM object derives `MappedObject` (`#[derive(MappedObject)]`, from the `mapping_derive` crate), which gives it `jni_ref()`, `class_type()`, and the `call_method`/`get_field`/`set_field`/`instance_of`/`is_same`/`equals` helpers. Immutable value types (`Vec3`, `BlockPos`, …) are instead read once into plain Rust fields — a value-snapshot, no JNI handle retained.
+**Game wrappers** (`mapping/client/`, `mapping/entity/`): `Minecraft` holds only what exists from the main menu onward — the `getInstance()` handle and the `Window`. The world-scoped objects are lazy accessors — `player()`, `world()`, `game_mode()` return `Result<Option<_>>`, where `Ok(None)` means "not in a world". This lets the client be injected from the main menu; world-dependent modules early-return when `None`. Each wrapper of a live JVM object derives `MappedObject` (`#[derive(MappedObject)]`, from the `mapping-derive` crate), which gives it `jni_ref()`, `class_type()`, and the `call_method`/`get_field`/`set_field`/`instance_of`/`is_same`/`equals` helpers. Immutable value types (`Vec3`, `BlockPos`, …) are instead read once into plain Rust fields — a value-snapshot, no JNI handle retained.
 
 The entity wrappers (`mapping/entity/`) mirror Minecraft's `Entity → LivingEntity → Player` class hierarchy with **traits**, since Rust has no inheritance: `PlayerRef: LivingEntityRef: EntityRef`, each a trait of provided methods. A wrapper struct (`Entity`, `LivingEntity`, `Mob`, `Player`, `LocalPlayer`) is `{ jni_ref }` plus empty `impl`s of the trait for its level and every level below — so a `Player` value can call `Entity`, `LivingEntity` and `Player` methods directly (the methods reflect against the wrapper's own class, and reflection resolves inherited methods). Static dispatch — zero-cost.
 
@@ -96,7 +96,7 @@ Reflected classes and resolved class handles live in `DashMap`s (`classes`, `cla
 
 Three tiers (`cargo test --workspace` runs T1 + T2):
 
-- **T1 — unit tests.** Fast, no JVM: `protocol` encode/decode, the injector's process-discovery filter, mapping signature/overload/parse helpers, version-id parsing, SDL scancode translation, pasted-color parsing, ESP projection and view-bobbing math, the dump text format and class-file extraction (a `javac`-compiled fixture; skipped without a JDK). An ignored test parses every class of a real jar: `MC_JAR=<client.jar> cargo test -p mc_bindgen -- --ignored`.
+- **T1 — unit tests.** Fast, no JVM: `protocol` encode/decode, the injector's process-discovery filter, mapping signature/overload/parse helpers, version-id parsing, SDL scancode translation, pasted-color parsing, ESP projection and view-bobbing math, the dump text format and class-file extraction (a `javac`-compiled fixture; skipped without a JDK). An ignored test parses every class of a real jar: `MC_JAR=<client.jar> cargo test -p mc-bindgen -- --ignored`.
 - **T2 — JVM integration** (`client/src/mapping/jvm_test.rs`). Boots an in-process JVM via the `jni` `invocation` feature, with a small Java fixture (`client/tests/java/`, compiled by `javac` at test time) standing in for the game classes. Exercises the reflected mapping path and the `state::init()` menu↔in-world transition. Needs a JDK.
 - **T3 — end-to-end** (`cargo xtask e2e`). Builds the workspace, discovers a running Minecraft and injects into it; the overlay check is manual. Needs a running game and root; not run in CI.
 
@@ -107,5 +107,5 @@ working directory** (the agent loader and client receive it via the
 `DARK_CONFIG_DIR` env var), so nothing is left in `.minecraft`:
 
 - `injector` → `app.log`
-- `agent_loader` → `agent_loader.log` (set up lazily, on the first command, once the directory is known)
+- `agent-loader` → `agent_loader.log` (set up lazily, on the first command, once the directory is known)
 - `client` → `dark_client.log`

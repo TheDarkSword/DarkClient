@@ -1,5 +1,5 @@
 [package]
-name = "mc_versions"
+name = "mc-versions"
 version.workspace = true
 edition.workspace = true
 

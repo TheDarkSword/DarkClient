@@ -11,7 +11,7 @@ crossterm.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 protocol = { path = "../protocol" }
-mc_versions = { path = "../mc_versions" }
+mc-versions = { path = "../mc-versions" }
 # Only to read `version.json` out of the game jar.
 zip = { version = "9.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

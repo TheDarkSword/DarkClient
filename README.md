@@ -52,7 +52,7 @@ The injection tool — a redesigned egui GUI, a `--tui` terminal mode and
 - Library injection into target processes (per-platform, behind a trait)
 - Status monitoring and error reporting
 
-### **Agent Loader** (`agent_loader/`)
+### **Agent Loader** (`agent-loader/`)
 A `cdylib` injected into the JVM. On load it provides:
 - Dynamic library loading and hot-reloading of the client
 - A TCP command server
@@ -67,7 +67,7 @@ The core modification framework featuring:
 - A packet layer (`net/`) that injects a handler into Minecraft's Netty pipeline
 - Persistent configuration of keybinds, settings and GUI layout
 
-### **Mapping Derive** (`mapping_derive/`)
+### **Mapping Derive** (`mapping-derive/`)
 A `proc-macro` crate providing `#[derive(MappedObject)]` for the JVM-object
 wrappers in the client — generates the JNI helper methods so each game
 wrapper stays a thin, safe handle.
@@ -171,7 +171,7 @@ to read or rewrite network packets can also implement the optional
 DarkClient/
 ├── 📁 protocol/             # Shared injector ⇆ agent IPC contract
 ├── 📁 injector/             # Injection tool (GUI / TUI / headless CLI)
-├── 📁 agent_loader/         # Injected cdylib: command server + client lifecycle
+├── 📁 agent-loader/         # Injected cdylib: command server + client lifecycle
 ├── 📁 client/               # Core modification framework
 │   └── 📁 src/
 │       ├── 📄 lib.rs        # Entry points (start_client / cleanup_client)
@@ -181,10 +181,10 @@ DarkClient/
 │       ├── 📁 graphic/      # Overlay, hooks, input, platform seam
 │       ├── 📁 module/       # Module framework + registry
 │       └── 📁 net/          # Netty packet layer (packet structs + dispatch)
-├── 📁 mapping_derive/       # proc-macro: #[derive(MappedObject)]
+├── 📁 mapping-derive/       # proc-macro: #[derive(MappedObject)]
 ├── 📁 xtask/                # Workspace task runner (cargo xtask e2e)
-├── 📁 mc_versions/          # Supported versions + version parsing
-├── 📁 mc_bindgen/           # Tooling: version dumps from the game jars
+├── 📁 mc-versions/          # Supported versions + version parsing
+├── 📁 mc-bindgen/           # Tooling: version dumps from the game jars
 ├── 📁 mc-data/              # Bound class list + per-version dumps
 └── 📄 Cargo.toml            # Workspace configuration
 ```

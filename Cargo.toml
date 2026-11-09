@@ -4,21 +4,21 @@ members = [
     "protocol",
     "injector",
     "client",
-    "agent_loader",
+    "agent-loader",
     "xtask",
-    "mapping_derive",
-    "mc_versions",
-    "mc_bindgen",
+    "mapping-derive",
+    "mc-versions",
+    "mc-bindgen",
 ]
 # What a plain `cargo build` / `cargo check` compiles. The tooling (`xtask`,
-# `mc_bindgen`) is built only when invoked or with `--workspace`.
+# `mc-bindgen`) is built only when invoked or with `--workspace`.
 default-members = [
     "protocol",
     "injector",
     "client",
-    "agent_loader",
-    "mapping_derive",
-    "mc_versions",
+    "agent-loader",
+    "mapping-derive",
+    "mc-versions",
 ]
 
 [workspace.package]

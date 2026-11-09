@@ -1,5 +1,5 @@
 [package]
-name = "mc_bindgen"
+name = "mc-bindgen"
 version.workspace = true
 edition.workspace = true
 publish = false
