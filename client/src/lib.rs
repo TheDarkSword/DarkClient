@@ -42,8 +42,9 @@ use crate::module::render::player_esp::PlayerEspModule;
 use crate::module::render::tracers::TracersModule;
 use crate::module::world::nuker::NukerModule;
 use crate::module::world::scaffold::ScaffoldModule;
-use crate::state::{client, init};
-use log::{error, info, LevelFilter};
+use crate::state::client;
+use log::{error, info, warn, LevelFilter};
+use protocol::client_abi;
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,26 +53,46 @@ use std::thread;
 /// Cleared by [`cleanup_client`]; gates the frame hook and background loops.
 pub static RUNNING: AtomicBool = AtomicBool::new(false);
 
-/// Entry point called by the agent loader once the library is loaded.
+/// Entry point the agent loader calls once the library is loaded — the
+/// [`client_abi::StartFn`] contract. The Minecraft version is checked here,
+/// synchronously, so the agent can tell the injector whether the client
+/// actually started; the rest of the startup runs on its own thread.
+///
+/// # Safety
+/// `report` must be valid for writes of `capacity` bytes, or null.
 #[no_mangle]
-pub extern "C" fn initialize_client() {
-    // Make sure we can't initialize more than once.
+pub unsafe extern "C" fn start_client(force: bool, report: *mut u8, capacity: usize) -> i32 {
+    let (status, message) = start(force);
+    write_report(report, capacity, &message);
+    status
+}
+
+// Keep the exports in lockstep with what the agent loader expects.
+const _: client_abi::StartFn = start_client;
+const _: client_abi::CleanupFn = cleanup_client;
+
+/// Brings the client up; returns the [`client_abi`] status and the report —
+/// the Minecraft version id, or why it could not start.
+fn start(force: bool) -> (i32, String) {
     if RUNNING.swap(true, Ordering::SeqCst) {
-        info!("Client already initialized");
-        return;
+        return (
+            client_abi::FAILED,
+            "the client is already running".to_string(),
+        );
     }
 
     // The log lives alongside the config, in the injector's directory — never
     // in `.minecraft` — see `config::base_dir`.
     let log_path = config::base_dir().join("dark_client.log");
-    match WriteLogger::init(
-        LevelFilter::Debug,
-        Config::default(),
-        File::create(&log_path).unwrap(),
-    ) {
-        Ok(_) => info!("Logger initialized"),
-        Err(e) => eprintln!("Error during logger initialization: {:?}", e),
+    match File::create(&log_path) {
+        Ok(file) => {
+            if let Err(e) = WriteLogger::init(LevelFilter::Debug, Config::default(), file) {
+                eprintln!("Error during logger initialization: {e:?}");
+            }
+        }
+        Err(e) => eprintln!("Could not create {}: {e}", log_path.display()),
     }
+    info!("Starting DarkClient…");
 
     // Custom panic hook: guarantee the input / render hooks are released.
     let default_hook = std::panic::take_hook();
@@ -81,13 +102,31 @@ pub extern "C" fn initialize_client() {
         default_hook(panic_info);
     }));
 
-    thread::spawn(|| {
-        info!("Starting DarkClient…");
+    let mapping = match state::init_mapping() {
+        Ok(mapping) => mapping,
+        Err(e) => {
+            error!("Client initialization failed: {e}");
+            RUNNING.store(false, Ordering::SeqCst);
+            return (client_abi::FAILED, e.to_string());
+        }
+    };
 
-        // Fixed, straight-line startup order: build the global state, then
+    let version = mapping.version_id().unwrap_or("unknown").to_string();
+    if !mapping.version_id().is_some_and(mc_versions::is_supported) {
+        let supported = mc_versions::SUPPORTED_VERSIONS.join(", ");
+        if !force {
+            warn!("Minecraft {version} is not supported (supported: {supported}); not starting");
+            RUNNING.store(false, Ordering::SeqCst);
+            return (client_abi::UNSUPPORTED, version);
+        }
+        warn!("Minecraft {version} is not supported (supported: {supported}); starting anyway, forced");
+    }
+
+    thread::spawn(|| {
+        // Fixed, straight-line startup order: build the game state, then
         // register modules, then install the hooks last so the frame hook
         // never observes an uninitialized client.
-        if let Err(e) = init() {
+        if let Err(e) = state::init_client() {
             error!("Client initialization failed: {e}");
             return;
         }
@@ -99,6 +138,25 @@ pub extern "C" fn initialize_client() {
         }
         info!("DarkClient started");
     });
+
+    (client_abi::STARTED, version)
+}
+
+/// Copies `message` into the agent's report buffer as a NUL-terminated
+/// string, truncated on a character boundary to fit.
+///
+/// # Safety
+/// `report` must be valid for writes of `capacity` bytes, or null.
+unsafe fn write_report(report: *mut u8, capacity: usize, message: &str) {
+    if report.is_null() || capacity == 0 {
+        return;
+    }
+    let mut len = message.len().min(capacity - 1);
+    while !message.is_char_boundary(len) {
+        len -= 1;
+    }
+    std::ptr::copy_nonoverlapping(message.as_ptr(), report, len);
+    *report.add(len) = 0;
 }
 
 /// Cleanup entry point called by the agent loader before unload.

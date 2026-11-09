@@ -1,6 +1,5 @@
 use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
-pub use crate::mapping::minecraft_version::MinecraftVersion;
 pub use crate::mapping::object::MappedObject;
 use dashmap::DashMap;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
@@ -9,8 +8,7 @@ use jni::sys::{jsize, jvalue, JNI_GetCreatedJavaVMs, JNI_OK};
 use jni::{JNIEnv, JavaVM};
 use log::info;
 pub use mapping_derive::MappedObject;
-use serde::Deserialize;
-use std::collections::HashMap;
+pub use mc_versions::MinecraftVersion;
 use std::sync::{Arc, RwLock};
 
 pub mod block;
@@ -24,7 +22,6 @@ pub mod inventory;
 pub mod java;
 mod loader;
 pub mod math;
-mod minecraft_version;
 pub mod object;
 mod reflect;
 mod renames;
@@ -32,34 +29,20 @@ mod renames;
 #[cfg(test)]
 mod jvm_test;
 
-/// On-disk JSON shape. Only obfuscated builds ship one of these.
-#[derive(Debug, Deserialize)]
-struct MappingFile {
-    version: MinecraftVersion,
-    classes: HashMap<String, MinecraftClass>,
-}
-
-/// How class / method / field names are resolved to their runtime form.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    /// Obfuscated build: translate names through the bundled Mojmap JSON.
-    Obfuscated,
-    /// Unobfuscated build (Minecraft 26.1+): names are already real, method
-    /// signatures are discovered lazily via JNI reflection.
-    Reflected,
-}
-
-/// Bridges deobfuscated (Mojmap) names to whatever the running JVM actually
-/// uses, transparently for both obfuscated and unobfuscated Minecraft.
+/// Bridges the Mojmap names the code uses to the running JVM. Minecraft 26.1+
+/// ships unobfuscated, so class, method and field names are already the real
+/// ones; JNI still needs method signatures, which are discovered once per
+/// class by reflection ([`reflect`]) and cached.
 #[derive(Debug)]
 pub struct Mapping {
     /// Handle to the host JVM; the source of every [`JNIEnv`] this bridge uses.
     jvm: JavaVM,
-    mode: Mode,
     version: MinecraftVersion,
-    /// In obfuscated mode every class is present up-front; in reflected mode
-    /// classes are discovered and cached on first use. A `DashMap` so the
-    /// render thread reads it without contending on one global lock.
+    /// The version id exactly as the game reports it (`"26.3"`), if it could
+    /// be read — what the supported-version check compares.
+    version_id: Option<String>,
+    /// Classes reflected so far. A `DashMap` so the render thread reads it
+    /// without contending on one global lock.
     classes: DashMap<String, Arc<MinecraftClass>>,
     /// The class loader that runs the game. On modded builds (Fabric / Forge)
     /// it is discovered up-front by [`loader::discover_game_loader`]; on vanilla
@@ -100,22 +83,15 @@ impl FieldType {
             FieldType::Float => String::from("F"),
             FieldType::Double => String::from("D"),
             FieldType::String => String::from("Ljava/lang/String;"),
-            FieldType::Object(class_type) => {
-                format!(
-                    "L{};",
-                    crate::state::mapping().runtime_class_name(*class_type)?
-                )
-            }
+            FieldType::Object(class_type) => format!("L{};", class_type.get_name()),
         })
     }
 }
 
-/// Probes whether the running Minecraft is unobfuscated.
-///
-/// In an unobfuscated build the real Mojmap class name resolves directly; in
-/// an obfuscated build that class only exists under its scrambled name, so the
-/// lookup fails (and the resulting pending exception is cleared).
-fn probe_unobfuscated(env: &mut JNIEnv) -> bool {
+/// Whether the vanilla (unobfuscated) `Minecraft` class resolves from this
+/// thread. Obfuscated builds — no longer supported — only have it under a
+/// scrambled name.
+fn minecraft_class_resolves(env: &mut JNIEnv) -> bool {
     let found = env.find_class("net/minecraft/client/Minecraft").is_ok();
     if !found {
         let _ = env.exception_clear();
@@ -148,58 +124,26 @@ impl Mapping {
         // `find_class` resolves a dead duplicate of `Minecraft` whose static
         // `instance` is null — the "Minecraft is null" failure (see `loader`).
         let game_loader = loader::discover_game_loader(&mut env);
-
-        // Reflected mode applies whenever the real Mojmap names exist at
-        // runtime — proven either by a resolved game loader (vanilla or modded)
-        // or, as a fallback, by a direct `find_class`. After this the `env`
-        // borrow of `jvm` ends, so `jvm` can move into the returned `Mapping`.
-        let reflected = game_loader.is_some() || probe_unobfuscated(&mut env);
-
-        if reflected {
-            match game_loader {
-                Some(_) => info!(
-                    "Modded/unobfuscated Minecraft detected — routing class \
-                     resolution through the game class loader"
-                ),
-                None => info!("Unobfuscated Minecraft detected — using runtime reflection mapping"),
+        match &game_loader {
+            Some(_) => info!("Game class loader found — routing class resolution through it"),
+            None if minecraft_class_resolves(&mut env) => {
+                info!("Vanilla Minecraft detected — capturing its class loader on first use")
             }
-            let mut mapping = Mapping {
-                jvm,
-                mode: Mode::Reflected,
-                version: MinecraftVersion::LATEST,
-                classes: DashMap::new(),
-                class_loader: RwLock::new(game_loader),
-                class_handles: DashMap::new(),
-            };
-            // Unobfuscated builds still rename symbols between releases, so
-            // the rename registry needs the real version here too.
-            mapping.version = mapping.running_version();
-            return Ok(mapping);
+            None => anyhow::bail!(
+                "Minecraft classes not found: obfuscated builds (1.21.11 and older) are not supported"
+            ),
         }
 
-        info!("Obfuscated Minecraft detected — using bundled Mojmap mappings");
-        let mut file: MappingFile = serde_json::from_str(include_str!("../../../mappings.json"))?;
-
-        // Standard `java.*` classes are never obfuscated; they live in a
-        // small hand-written supplement.
-        let java_classes: HashMap<String, MinecraftClass> =
-            serde_json::from_str(include_str!("../../../java_mappings.json"))?;
-        file.classes.extend(java_classes);
-
-        let classes = file
-            .classes
-            .into_iter()
-            .map(|(name, class)| (name, Arc::new(class)))
-            .collect();
-
-        Ok(Mapping {
+        let mut mapping = Mapping {
             jvm,
-            mode: Mode::Obfuscated,
-            version: file.version,
-            classes,
-            class_loader: RwLock::new(None),
+            version: MinecraftVersion::LATEST,
+            version_id: None,
+            classes: DashMap::new(),
+            class_loader: RwLock::new(game_loader),
             class_handles: DashMap::new(),
-        })
+        };
+        mapping.read_version();
+        Ok(mapping)
     }
 
     /// Attaches the current thread to the JVM and returns a JNI environment.
@@ -233,10 +177,16 @@ impl Mapping {
         self.version
     }
 
-    /// The running version, from `SharedConstants.getCurrentVersion().id()`.
-    /// Falls back to [`MinecraftVersion::LATEST`] when it cannot be read or
-    /// parsed, which resolves every name to its newest form.
-    fn running_version(&self) -> MinecraftVersion {
+    /// The version id exactly as the game reports it, if it could be read.
+    pub fn version_id(&self) -> Option<&str> {
+        self.version_id.as_deref()
+    }
+
+    /// Reads the running version from `SharedConstants.getCurrentVersion().id()`
+    /// — through the game class loader, so the same on vanilla, Fabric and
+    /// Forge. An id that does not parse keeps [`MinecraftVersion::LATEST`],
+    /// which resolves every name to its newest form.
+    fn read_version(&mut self) {
         let read = || -> anyhow::Result<String> {
             let mut env = self.get_env()?;
             env.with_local_frame(8, |env| -> anyhow::Result<String> {
@@ -257,42 +207,37 @@ impl Mapping {
         };
 
         match read() {
-            Ok(id) => match MinecraftVersion::parse_id(&id) {
-                Some(version) => {
-                    info!("Minecraft {id} (version {version})");
-                    version
+            Ok(id) => {
+                match MinecraftVersion::parse_id(&id) {
+                    Some(version) => {
+                        info!("Minecraft {id} (version {version})");
+                        self.version = version;
+                    }
+                    None => log::warn!(
+                        "Unrecognized Minecraft version id {id:?}; assuming latest names"
+                    ),
                 }
-                None => {
-                    log::warn!("Unrecognized Minecraft version id {id:?}; assuming latest names");
-                    MinecraftVersion::LATEST
-                }
-            },
+                self.version_id = Some(id);
+            }
             Err(e) => {
                 if let Ok(env) = self.get_env() {
                     let _ = env.exception_clear();
                 }
                 log::warn!("Could not read the Minecraft version ({e}); assuming latest names");
-                MinecraftVersion::LATEST
             }
         }
     }
 
-    /// Resolves a mapped class by its deobfuscated name. In reflected mode the
-    /// class is reflected from the JVM and cached on first request.
+    /// Resolves a class by name, reflecting it from the JVM and caching it on
+    /// first request.
     pub fn get_class(&self, name: &str) -> anyhow::Result<Arc<MinecraftClass>> {
         let name = renames::resolve_class(name, self.version);
         if let Some(class) = self.classes.get(name) {
             return Ok(Arc::clone(class.value()));
         }
-
-        match self.mode {
-            Mode::Obfuscated => Err(anyhow::anyhow!("{} java class not found", name)),
-            Mode::Reflected => {
-                let class = Arc::new(reflect::reflect_class(self, name)?);
-                self.classes.insert(name.to_owned(), Arc::clone(&class));
-                Ok(class)
-            }
-        }
+        let class = Arc::new(reflect::reflect_class(self, name)?);
+        self.classes.insert(name.to_owned(), Arc::clone(&class));
+        Ok(class)
     }
 
     /// The captured Minecraft class loader, if any — poison-safe.
@@ -399,100 +344,13 @@ impl Mapping {
     }
 
     /// Runtime (JVM) name of a class.
-    fn runtime_class_name(&self, class_type: MinecraftClassType) -> anyhow::Result<String> {
-        match self.mode {
-            Mode::Reflected => Ok(class_type.get_name().to_owned()),
-            Mode::Obfuscated => Ok(self.get_class(class_type.get_name())?.name.clone()),
-        }
+    fn runtime_class_name(&self, class_type: MinecraftClassType) -> String {
+        renames::resolve_class(class_type.get_name(), self.version).to_owned()
     }
 
     /// Runtime (JVM) name of a field.
-    fn runtime_field_name(
-        &self,
-        class_type: MinecraftClassType,
-        field: &str,
-    ) -> anyhow::Result<String> {
-        let field = renames::resolve_member(class_type, field, self.version);
-        match self.mode {
-            Mode::Reflected => Ok(field.to_owned()),
-            Mode::Obfuscated => Ok(self
-                .get_class(class_type.get_name())?
-                .get_field(field)?
-                .name
-                .clone()),
-        }
-    }
-
-    /// Finds the deobfuscated name of a class given its obfuscated name.
-    /// Only meaningful in obfuscated mode; used to prettify error messages.
-    fn find_class_by_obfuscated_name(&self, obfuscated_name: &str) -> Option<String> {
-        self.classes
-            .iter()
-            .find(|entry| entry.value().name == obfuscated_name)
-            .map(|entry| entry.key().clone())
-    }
-
-    fn translate_type_descriptor(&self, descriptor: &mut &str) -> String {
-        let mut array_brackets = String::new();
-        while descriptor.starts_with('[') {
-            array_brackets.push_str("[]");
-            *descriptor = &descriptor[1..];
-        }
-
-        let type_name = if let Some(stripped) = descriptor.strip_prefix('L') {
-            if let Some(end_index) = stripped.find(';') {
-                let obfuscated_name = &stripped[..end_index];
-                let deobfuscated_name = self
-                    .find_class_by_obfuscated_name(obfuscated_name)
-                    .unwrap_or_else(|| obfuscated_name.to_owned());
-
-                *descriptor = &stripped[end_index + 1..];
-                deobfuscated_name
-            } else {
-                let rest = descriptor.to_string();
-                *descriptor = "";
-                rest
-            }
-        } else {
-            let (primitive, rest) = descriptor.split_at(1);
-            *descriptor = rest;
-            match primitive {
-                "Z" => "boolean".to_string(),
-                "B" => "byte".to_string(),
-                "C" => "char".to_string(),
-                "S" => "short".to_string(),
-                "I" => "int".to_string(),
-                "J" => "long".to_string(),
-                "F" => "float".to_string(),
-                "D" => "double".to_string(),
-                "V" => "void".to_string(),
-                _ => primitive.to_string(),
-            }
-        };
-
-        format!("{}{}", type_name, array_brackets)
-    }
-
-    fn translate_signature(&self, signature: &str) -> String {
-        if let (Some(params_start), Some(params_end)) = (signature.find('('), signature.find(')')) {
-            let mut params_str = &signature[params_start + 1..params_end];
-            let mut return_type_str = &signature[params_end + 1..];
-
-            let mut translated_params = Vec::new();
-            while !params_str.is_empty() {
-                translated_params.push(self.translate_type_descriptor(&mut params_str));
-            }
-
-            let translated_return = self.translate_type_descriptor(&mut return_type_str);
-
-            format!(
-                "({}) -> {}",
-                translated_params.join(", "),
-                translated_return
-            )
-        } else {
-            signature.to_string()
-        }
+    fn runtime_field_name(&self, class_type: MinecraftClassType, field: &str) -> String {
+        renames::resolve_member(class_type, field, self.version).to_owned()
     }
 
     pub fn call_static_method(
@@ -511,15 +369,11 @@ impl Mapping {
             Ok(value) => Ok(value),
             Err(_) => {
                 let _ = env.exception_clear();
-                let translated_signature = self.translate_signature(&method.signature);
                 Err(anyhow::anyhow!(
-                    "Error calling static method {} ({}) in class {} ({}) with signature {} ({})",
-                    method_name,
+                    "Error calling static method {}{} in class {}",
                     method.name,
-                    class_type.get_name(),
+                    method.signature,
                     class.name,
-                    translated_signature,
-                    method.signature
                 ))
             }
         }
@@ -558,15 +412,11 @@ impl Mapping {
             Ok(value) => Ok(value),
             Err(_) => {
                 let _ = env.exception_clear();
-                let translated_signature = self.translate_signature(&method.signature);
                 Err(anyhow::anyhow!(
-                    "Error calling method {} ({}) in class {} ({}) with signature {} ({})",
-                    method_name,
+                    "Error calling method {}{} in class {}",
                     method.name,
-                    class_type.get_name(),
+                    method.signature,
                     class.name,
-                    translated_signature,
-                    method.signature
                 ))
             }
         }
@@ -584,7 +434,7 @@ impl Mapping {
             return Ok(unsafe { JMethodID::from_raw(handle.0) });
         }
 
-        let class_name = self.runtime_class_name(class_type)?;
+        let class_name = self.runtime_class_name(class_type);
         let jclass = self.resolve_class(env, &class_name)?;
         let id = match env.get_method_id(&jclass, &method.name, &method.signature) {
             Ok(id) => id,
@@ -610,9 +460,9 @@ impl Mapping {
     ) -> anyhow::Result<JValueOwned<'_>> {
         let mut env = self.get_env()?;
 
-        let class_name = self.runtime_class_name(class_type)?;
+        let class_name = self.runtime_class_name(class_type);
         let jclass = self.resolve_class(&mut env, &class_name)?;
-        let runtime_field = self.runtime_field_name(class_type, field_name)?;
+        let runtime_field = self.runtime_field_name(class_type, field_name);
         match env.get_static_field(jclass, &runtime_field, field_type.get_signature()?) {
             Ok(value) => Ok(value),
             Err(_) => {
@@ -636,7 +486,7 @@ impl Mapping {
     ) -> anyhow::Result<JValueOwned<'_>> {
         let mut env = self.get_env()?;
 
-        let runtime_field = self.runtime_field_name(class_type, field_name)?;
+        let runtime_field = self.runtime_field_name(class_type, field_name);
         match env.get_field(instance, &runtime_field, field_type.get_signature()?) {
             Ok(value) => Ok(value),
             Err(_) => {
@@ -661,7 +511,7 @@ impl Mapping {
     ) -> anyhow::Result<()> {
         let mut env = self.get_env()?;
 
-        let runtime_field = self.runtime_field_name(class_type, field_name)?;
+        let runtime_field = self.runtime_field_name(class_type, field_name);
         match env.set_field(instance, &runtime_field, field_type.get_signature()?, value) {
             Ok(_) => Ok(()),
             Err(_) => {
@@ -699,7 +549,7 @@ impl Mapping {
         instance: &JObject,
     ) -> anyhow::Result<bool> {
         let mut env = self.get_env()?;
-        let class_name = self.runtime_class_name(class_type)?;
+        let class_name = self.runtime_class_name(class_type);
         let jclass = self.resolve_class(&mut env, &class_name)?;
         Ok(env.is_instance_of(instance, &jclass)?)
     }
@@ -802,13 +652,5 @@ mod tests {
             FieldType::String.get_signature().unwrap(),
             "Ljava/lang/String;"
         );
-    }
-
-    #[test]
-    fn the_bundled_java_mappings_supplement_parses() {
-        let java: HashMap<String, MinecraftClass> =
-            serde_json::from_str(include_str!("../../../java_mappings.json"))
-                .expect("java_mappings.json must be valid");
-        assert!(!java.is_empty());
     }
 }

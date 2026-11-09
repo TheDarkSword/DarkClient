@@ -2,16 +2,16 @@
 //!
 //! Injects the agent into the target process (platform-specific) and then
 //! tells it, over the localhost TCP channel, to load or hot-reload the
-//! client library.
+//! client library — which answers whether it started.
 
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use log::info;
-use protocol::{Command, SOCKET_ADDR};
+use protocol::{Command, Response, SOCKET_ADDR};
 
 use crate::platform::{AgentInjector, InjectError, PlatformInjector};
 
@@ -27,10 +27,23 @@ const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(500);
 const CONNECT_RETRY_PAUSE: Duration = Duration::from_millis(100);
 /// Timeout for writing the command once connected.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long the client gets to load and report back.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Injects the agent into `pid` (unless already present) and triggers a
-/// client (re)load. Blocking — callers run it off the UI thread.
-pub fn inject(pid: u32) -> Result<(), InjectError> {
+/// client (re)load; returns the Minecraft version the client started on.
+/// Blocking — callers run it off the UI thread.
+///
+/// `version` is what discovery read off the process, if anything: a known
+/// unsupported version is refused before touching the game. Unless `force`
+/// is set, the client then checks the version again from inside the game.
+pub fn inject(pid: u32, version: Option<&str>, force: bool) -> Result<String, InjectError> {
+    if let Some(version) = version {
+        if !force && !mc_versions::is_supported(version) {
+            return Err(InjectError::UnsupportedVersion(version.to_string()));
+        }
+    }
+
     let injector = PlatformInjector;
 
     let agent_file = library_file_name(AGENT_BASE);
@@ -43,11 +56,16 @@ pub fn inject(pid: u32) -> Result<(), InjectError> {
         injector.inject(pid, &agent_path)?;
     }
 
-    send_reload(&client_path)
+    match send_reload(&client_path, force)? {
+        Response::Started { version } => Ok(version),
+        Response::Unsupported { version } => Err(InjectError::UnsupportedVersion(version)),
+        Response::Failed { reason } => Err(InjectError::ClientFailed(reason)),
+    }
 }
 
-/// Connects to the agent's command server and sends a [`Command::Reload`].
-fn send_reload(client_lib: &Path) -> Result<(), InjectError> {
+/// Connects to the agent's command server, sends a [`Command::Reload`] and
+/// waits for its [`Response`].
+fn send_reload(client_lib: &Path, force: bool) -> Result<Response, InjectError> {
     let absolute = std::path::absolute(client_lib).map_err(InjectError::Path)?;
     // The client keeps its config in the directory the injector runs from.
     let config_dir = std::env::current_dir().map_err(InjectError::Path)?;
@@ -58,13 +76,21 @@ fn send_reload(client_lib: &Path) -> Result<(), InjectError> {
     let command = Command::Reload {
         library: absolute,
         config_dir,
+        force,
     }
     .encode();
     info!("sending command: {command}");
     stream
-        .write_all(command.as_bytes())
+        .write_all(format!("{command}\n").as_bytes())
         .map_err(InjectError::Send)?;
-    Ok(())
+
+    let _ = stream.set_read_timeout(Some(REPLY_TIMEOUT));
+    let mut reply = String::new();
+    BufReader::new(stream)
+        .read_line(&mut reply)
+        .map_err(|e| InjectError::NoReply(e.to_string()))?;
+    info!("agent replied: {}", reply.trim());
+    Response::decode(&reply).map_err(|e| InjectError::NoReply(e.to_string()))
 }
 
 /// Repeatedly tries to connect until [`CONNECT_DEADLINE`] elapses — this

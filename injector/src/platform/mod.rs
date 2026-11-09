@@ -58,6 +58,18 @@ pub enum InjectError {
     /// An absolute path could not be resolved.
     #[error("could not resolve an absolute library path: {0}")]
     Path(std::io::Error),
+    /// The Minecraft version is not one DarkClient supports.
+    #[error(
+        "Minecraft {0} is not supported (supported: {supported}); tick \"Ignore version check\" to inject anyway",
+        supported = mc_versions::SUPPORTED_VERSIONS.join(", ")
+    )]
+    UnsupportedVersion(String),
+    /// The client library loaded but could not start.
+    #[error("the client failed to start: {0}")]
+    ClientFailed(String),
+    /// The agent did not answer the reload command.
+    #[error("no reply from the agent ({0}); if Minecraft was started before updating DarkClient, restart it")]
+    NoReply(String),
     /// Injection is not implemented for the host platform.
     // Constructed only by the macOS / fallback backend, so it reads as dead
     // code on Linux and Windows builds.

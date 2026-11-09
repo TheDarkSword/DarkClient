@@ -16,7 +16,7 @@
 use crate::mapping::component::Component;
 use crate::mapping::entity::living::LivingEntity;
 use crate::mapping::math::Vec3;
-use crate::mapping::minecraft_version::MinecraftVersion;
+use crate::mapping::MinecraftVersion;
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};

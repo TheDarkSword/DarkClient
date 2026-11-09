@@ -2,7 +2,8 @@
 //!
 //! Two things live for the whole life of the injected client: the JNI
 //! [`Mapping`] bridge and the running game / module [`Client`]. Each is built
-//! once by [`init`] and reached afterwards through a free accessor.
+//! once — [`init_mapping`] then [`init_client`] — and reached afterwards
+//! through a free accessor.
 //!
 //! Initialization order is explicit (see [`init`]): the mapping is built
 //! first because the game wrappers resolve their classes through it. The
@@ -35,12 +36,25 @@ pub enum ClientError {
     Init(#[from] anyhow::Error),
 }
 
-/// Initializes the global client state. Must be called exactly once, before
-/// any accessor is used: it builds the mapping, then the game/module state.
+/// Initializes the global client state in one go: [`init_mapping`], then
+/// [`init_client`]. Must be called exactly once, before any accessor is used.
 pub fn init() -> Result<(), ClientError> {
+    init_mapping()?;
+    init_client()
+}
+
+/// First step: builds the JNI mapping bridge — which also reads the running
+/// Minecraft version, so the caller can decide whether to go on.
+pub fn init_mapping() -> Result<&'static Mapping, ClientError> {
     MAPPING
         .set(Mapping::new()?)
         .map_err(|_| ClientError::AlreadyInitialized)?;
+    Ok(mapping())
+}
+
+/// Second step: builds the game/module state. [`init_mapping`] must have
+/// succeeded.
+pub fn init_client() -> Result<(), ClientError> {
     CLIENT
         .set(Client::new()?)
         .map_err(|_| ClientError::AlreadyInitialized)?;
@@ -89,8 +103,11 @@ pub fn env() -> anyhow::Result<JNIEnv<'static>> {
 /// — is released here.
 pub fn teardown() {
     // Remove the Netty pipeline handler first — leaving it in place would
-    // crash the JVM once this library is unloaded.
-    crate::net::teardown();
+    // crash the JVM once this library is unloaded. It can only exist once the
+    // mapping does, and needs it.
+    if MAPPING.get().is_some() {
+        crate::net::teardown();
+    }
     if let Some(client) = CLIENT.get() {
         client.minecraft.teardown();
     }

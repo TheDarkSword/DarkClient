@@ -34,6 +34,7 @@ pub fn run_tui() {
                 app.scan();
                 cursor_row = 0;
             }
+            Some(KeyCode::Char('f')) => app.set_force(!app.force()),
             Some(KeyCode::Up) => cursor_row = cursor_row.saturating_sub(1),
             Some(KeyCode::Down) => {
                 let last = app.processes().len().saturating_sub(1);
@@ -89,7 +90,8 @@ fn render(out: &mut Stdout, app: &InjectorApp, cursor_row: usize) {
     let _ = execute!(out, ResetColor);
 
     println!();
-    println!("  [s] scan   [Enter] inject   [q] quit");
+    let force = if app.force() { "on" } else { "off" };
+    println!("  [s] scan   [Enter] inject   [f] ignore version check: {force}   [q] quit");
 }
 
 /// Maps an [`InjectionStatus`] to a terminal colour and message.
@@ -98,7 +100,7 @@ fn status_line(status: &InjectionStatus) -> (Color, String) {
         InjectionStatus::Idle => Color::Grey,
         InjectionStatus::Scanning => Color::Cyan,
         InjectionStatus::Injecting(_) => Color::Yellow,
-        InjectionStatus::Done(_) => Color::Green,
+        InjectionStatus::Done { .. } => Color::Green,
         InjectionStatus::Failed(_) => Color::Red,
     };
     (color, status.message())

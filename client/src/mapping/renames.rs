@@ -8,8 +8,8 @@
 //!
 //! See `docs_internal/versioned-names.md` for the design rationale.
 
-use crate::mapping::minecraft_version::MinecraftVersion;
 use crate::mapping::MinecraftClassType;
+use crate::mapping::MinecraftVersion;
 
 /// Shorthand for a [`MinecraftVersion`] literal in the [`RENAMES`] table.
 const fn v(major: u32, minor: u32, patch: u32) -> MinecraftVersion {
@@ -38,28 +38,11 @@ enum Rename {
 
 /// Every symbol whose name changed across the supported Minecraft versions.
 static RENAMES: &[Rename] = &[
-    // `Window.getWindow()` -> `Window.handle()`
-    Rename::Member {
-        owner: MinecraftClassType::Window,
-        canonical: "handle",
-        legacy: &[(v(1, 21, 9), "getWindow")],
-    },
-    // `MultiPlayerGameMode.handleInventoryMouseClick()` -> `handleContainerInput()`
-    Rename::Member {
-        owner: MinecraftClassType::MultiPlayerGameMode,
-        canonical: "handleContainerInput",
-        legacy: &[(v(26, 1, 0), "handleInventoryMouseClick")],
-    },
     // `GameRenderer.getMainCamera()` -> `GameRenderer.mainCamera()`
     Rename::Member {
         owner: MinecraftClassType::GameRenderer,
         canonical: "mainCamera",
         legacy: &[(v(26, 2, 0), "getMainCamera")],
-    },
-    // class `ClickType` -> class `ContainerInput`
-    Rename::Class {
-        class: MinecraftClassType::ContainerInput,
-        legacy: &[(v(26, 1, 0), "net/minecraft/world/inventory/ClickType")],
     },
 ];
 
@@ -81,7 +64,7 @@ fn pick<'a>(
 /// The JNI name of the class `name` on Minecraft `version` — `name` itself
 /// unless an older name applies.
 pub fn resolve_class(name: &str, version: MinecraftVersion) -> &str {
-    // Reflected builds always run the latest Minecraft: nothing to translate.
+    // An unknown version resolves to the newest names: nothing to translate.
     if version == MinecraftVersion::LATEST {
         return name;
     }

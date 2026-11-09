@@ -1,0 +1,6 @@
+[package]
+name = "mc_versions"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

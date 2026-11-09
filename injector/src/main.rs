@@ -24,9 +24,11 @@ fn main() {
 
     let _ = protocol::init_file_logger("app.log", LevelFilter::Debug);
 
-    // `--inject <pid>` — headless injection, for scripting and the e2e harness.
+    // `--inject <pid> [--force]` — headless injection, for scripting and the
+    // e2e harness. `--force` skips the supported-version check.
     if let Some(pid) = injection_target(&args) {
-        std::process::exit(run_headless_injection(pid));
+        let force = args.iter().any(|a| a == "--force");
+        std::process::exit(run_headless_injection(pid, force));
     }
 
     if args.iter().any(|a| a == "--tui") {
@@ -47,10 +49,14 @@ fn injection_target(args: &[String]) -> Option<u32> {
 }
 
 /// Injects into `pid` without a UI; returns a process exit code.
-fn run_headless_injection(pid: u32) -> i32 {
-    match inject::inject(pid) {
-        Ok(()) => {
-            println!("injected into process {pid}");
+fn run_headless_injection(pid: u32, force: bool) -> i32 {
+    let version = platform::find_minecraft_processes()
+        .into_iter()
+        .find(|p| p.pid == pid)
+        .and_then(|p| p.version);
+    match inject::inject(pid, version.as_deref(), force) {
+        Ok(version) => {
+            println!("injected into process {pid} (Minecraft {version})");
             0
         }
         Err(e) => {

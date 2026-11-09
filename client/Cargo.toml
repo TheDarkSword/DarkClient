@@ -30,6 +30,8 @@ libloading = "0.9.0"
 ilhook = { version = "2.3.0", default-features = false, features = ["x64"] }
 lazy_static = "1.4.0"
 mapping_derive = { path = "../mapping_derive" }
+mc_versions = { path = "../mc_versions" }
+protocol = { path = "../protocol" }
 
 [dev-dependencies]
 # The `invocation` feature provides `JavaVM::new`, used by the in-process

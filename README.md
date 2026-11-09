@@ -9,17 +9,14 @@ A Minecraft hacked client built in Rust, using JNI (Java Native Interface) for s
 
 ### Supported Minecraft Versions
 
-- **Obfuscated builds** (≤ 1.21.11): bundled Mojmap mappings (`mappings.json`, currently 1.21.10).
-- **Unobfuscated builds** (26.1+): no mappings needed — names are resolved directly, method signatures via runtime JNI reflection. Latest tested: **26.1.2**.
+**26.1, 26.1.1, 26.1.2, 26.2 and 26.3** — the unobfuscated releases, with both the OpenGL and the Vulkan renderer. Names are resolved directly and method signatures via runtime JNI reflection; no mapping files are needed.
 
-The build auto-detects which mode to use at runtime. A single binary works on both.
+Any other version — snapshots included — is refused: the injector checks the game version before injecting, and the client checks it again from inside the game. For testing on an unlisted version, tick **Ignore version check** in the injector (`f` in the TUI, `--force` with `--inject`). Obfuscated Minecraft (1.21.11 and older) is not supported.
 
 ### Supported Mod Loaders
 
 DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It auto-discovers the game's class loader (`KnotClassLoader` for Fabric, `TransformingClassLoader` for Forge/NeoForge), so injection is loader-agnostic.
 
-> [!NOTE]
-> Fabric and Forge/NeoForge support requires an unobfuscated build (26.1+). Obfuscated Minecraft under a mod loader (intermediary/SRG names) is not supported.
 
 ## 🖼️ Preview
 
@@ -31,7 +28,7 @@ DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It
 - **🎨 Cross-Platform GUI**: Beautiful injector interface built with egui
 - **🖥️ In-Game ClickGUI**: egui overlay with draggable category panels, per-module settings, scrollable lists and rebindable keys
 - **⌨️ Real-time Input Handling**: Advanced keyboard/mouse event processing for module toggling
-- **🗺️ Smart Mapping System**: Automatic obfuscation handling — bundled mappings for obfuscated builds, runtime JNI reflection for unobfuscated ones
+- **🗺️ Mapping System**: Mojmap names resolved at runtime through JNI reflection, with per-version renames handled in one place
 - **📡 Packet Layer**: Netty-pipeline interception (pure JNI, no JVMTI) for packet-level modules — powers NoFall and Velocity / Anti-Knockback
 - **🔄 Module Architecture**: Extensible module system for easy feature development
 - **💾 Persistent Config**: keybinds, settings, enabled modules and GUI layout saved across injections
@@ -65,7 +62,7 @@ A `cdylib` injected into the JVM. On load it provides:
 The core modification framework featuring:
 - JNI integration with Minecraft's runtime
 - Module system for game modifications (combat, movement, render)
-- Mapping system for obfuscation handling
+- Mapping system resolving Minecraft classes and members at runtime
 - An in-game ClickGUI overlay, input processing and event management
 - A packet layer (`net/`) that injects a handler into Minecraft's Netty pipeline
 - Persistent configuration of keybinds, settings and GUI layout
@@ -104,15 +101,6 @@ cd darkclient
 ```bash
 cargo build --release
 ```
-
-### 3. Prepare Mappings
-The framework uses obfuscation mappings to interact with Minecraft:
-
-#### Convert Mojang mappings using the included Python script
-```python
-python conversion.py
-```
-#### Place the resulting mappings.json in the project root
 
 
 ## 🎮 Usage
@@ -186,17 +174,16 @@ DarkClient/
 ├── 📁 agent_loader/         # Injected cdylib: command server + client lifecycle
 ├── 📁 client/               # Core modification framework
 │   └── 📁 src/
-│       ├── 📄 lib.rs        # Entry points (initialize_client / cleanup_client)
+│       ├── 📄 lib.rs        # Entry points (start_client / cleanup_client)
 │       ├── 📄 state.rs      # Global client + mapping state
 │       ├── 📄 config.rs     # Persistent config (keybinds, settings, GUI layout)
-│       ├── 📁 mapping/      # Minecraft mapping system (obfuscated + reflected)
+│       ├── 📁 mapping/      # Minecraft mapping system (runtime reflection)
 │       ├── 📁 graphic/      # Overlay, hooks, input, platform seam
 │       ├── 📁 module/       # Module framework + registry
 │       └── 📁 net/          # Netty packet layer (packet structs + dispatch)
 ├── 📁 mapping_derive/       # proc-macro: #[derive(MappedObject)]
 ├── 📁 xtask/                # Workspace task runner (cargo xtask e2e)
-├── 📄 mappings.json         # Minecraft obfuscation mappings
-├── 📄 conversion.py         # Mapping conversion utility
+├── 📁 mc_versions/          # Supported versions + version parsing
 └── 📄 Cargo.toml            # Workspace configuration
 ```
 

@@ -18,8 +18,9 @@ pub enum InjectionStatus {
     Scanning,
     /// An injection into the given pid is in progress.
     Injecting(u32),
-    /// The last injection into the given pid succeeded.
-    Done(u32),
+    /// The last injection into `pid` succeeded; the client runs on
+    /// Minecraft `version`.
+    Done { pid: u32, version: String },
     /// The last action failed, with a human-readable reason.
     Failed(String),
 }
@@ -31,7 +32,9 @@ impl InjectionStatus {
             InjectionStatus::Idle => "Ready.".to_string(),
             InjectionStatus::Scanning => "Scanning for Minecraft…".to_string(),
             InjectionStatus::Injecting(pid) => format!("Injecting into process {pid}…"),
-            InjectionStatus::Done(pid) => format!("Injected into process {pid}."),
+            InjectionStatus::Done { pid, version } => {
+                format!("Injected into process {pid} (Minecraft {version}).")
+            }
             InjectionStatus::Failed(reason) => format!("Error: {reason}"),
         }
     }
@@ -42,8 +45,11 @@ pub struct InjectorApp {
     processes: Vec<ProcessInfo>,
     selected_pid: Option<u32>,
     status: InjectionStatus,
+    /// Inject even into an unsupported Minecraft version — a development
+    /// override.
+    force: bool,
     /// Result channel of an in-flight injection, with its target pid.
-    pending: Option<(u32, Receiver<Result<(), InjectError>>)>,
+    pending: Option<(u32, Receiver<Result<String, InjectError>>)>,
 }
 
 impl InjectorApp {
@@ -53,8 +59,19 @@ impl InjectorApp {
             processes: Vec::new(),
             selected_pid: None,
             status: InjectionStatus::Idle,
+            force: false,
             pending: None,
         }
+    }
+
+    /// Whether the version check is overridden.
+    pub fn force(&self) -> bool {
+        self.force
+    }
+
+    /// Overrides — or restores — the version check for later injections.
+    pub fn set_force(&mut self, force: bool) {
+        self.force = force;
     }
 
     /// The processes found by the last [`scan`](Self::scan).
@@ -112,9 +129,16 @@ impl InjectorApp {
             return;
         };
 
+        let version = self
+            .processes
+            .iter()
+            .find(|p| p.pid == pid)
+            .and_then(|p| p.version.clone());
+        let force = self.force;
+
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let _ = tx.send(inject::inject(pid));
+            let _ = tx.send(inject::inject(pid, version.as_deref(), force));
         });
         self.pending = Some((pid, rx));
         self.status = InjectionStatus::Injecting(pid);
@@ -130,7 +154,7 @@ impl InjectorApp {
         match rx.try_recv() {
             Ok(result) => {
                 self.status = match result {
-                    Ok(()) => InjectionStatus::Done(pid),
+                    Ok(version) => InjectionStatus::Done { pid, version },
                     Err(e) => InjectionStatus::Failed(e.to_string()),
                 };
                 self.pending = None;

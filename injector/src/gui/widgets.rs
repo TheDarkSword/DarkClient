@@ -109,7 +109,7 @@ pub fn status_banner(ui: &mut Ui, status: &InjectionStatus) {
         InjectionStatus::Idle => (Palette::TEXT_DIM, "●"),
         InjectionStatus::Scanning => (Palette::ACCENT, "◌"),
         InjectionStatus::Injecting(_) => (Palette::WARN, "◌"),
-        InjectionStatus::Done(_) => (Palette::OK, "✔"),
+        InjectionStatus::Done { .. } => (Palette::OK, "✔"),
         InjectionStatus::Failed(_) => (Palette::ERR, "✖"),
     };
     let busy = matches!(

@@ -2,77 +2,24 @@ use crate::state;
 use anyhow::anyhow;
 use jni::objects::{JClass, JObject, JString, JValue, JValueOwned};
 use jni::JNIEnv;
-use serde::de::{MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::OnceLock;
 
-/// Custom deserializer that handles both single Method and Vec<Method> formats
-fn deserialize_methods<'de, D>(deserializer: D) -> Result<HashMap<String, Vec<Method>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    struct MethodsVisitor;
-
-    impl<'de> Visitor<'de> for MethodsVisitor {
-        type Value = HashMap<String, Vec<Method>>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a map of method names to methods or arrays of methods")
-        }
-
-        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-        where
-            A: MapAccess<'de>,
-        {
-            let mut methods = HashMap::new();
-
-            while let Some(key) = map.next_key::<String>()? {
-                // Try to deserialize as a single Method first
-                match map.next_value::<MethodOrVec>()? {
-                    MethodOrVec::Single(method) => {
-                        methods.insert(key, vec![method]);
-                    }
-                    MethodOrVec::Multiple(method_vec) => {
-                        methods.insert(key, method_vec);
-                    }
-                }
-            }
-
-            Ok(methods)
-        }
-    }
-
-    deserializer.deserialize_map(MethodsVisitor)
-}
-
-/// Helper enum for deserializing either a single Method or Vec<Method>
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum MethodOrVec {
-    Single(Method),
-    Multiple(Vec<Method>),
-}
-
-/// Represents a mapped Minecraft class with its methods and fields
-#[derive(Debug, Deserialize)]
+/// A Minecraft class with its methods, as discovered by reflection.
+#[derive(Debug)]
 pub struct MinecraftClass {
     pub name: String,
-    #[serde(deserialize_with = "deserialize_methods", default)]
     methods: HashMap<String, Vec<Method>>,
-    fields: HashMap<String, Field>,
 }
 
-/// Represents a method with its obfuscated name and JNI signature
-#[derive(Debug, Deserialize)]
+/// A method with its name and JNI signature.
+#[derive(Debug)]
 pub struct Method {
     pub name: String,
     pub signature: String,
     /// JNI method id, resolved on first call and cached here. The id is stable
     /// for the life of the JVM, so this turns every later call into a direct
     /// invocation with no name/signature lookup.
-    #[serde(skip)]
     pub id: OnceLock<MethodHandle>,
 }
 
@@ -84,12 +31,6 @@ pub struct MethodHandle(pub jni::sys::jmethodID);
 unsafe impl Send for MethodHandle {}
 unsafe impl Sync for MethodHandle {}
 
-/// Represents a field with its obfuscated name
-#[derive(Debug, Deserialize)]
-pub struct Field {
-    pub name: String,
-}
-
 /// Signature matching result for method resolution
 #[derive(Debug, PartialEq)]
 enum SignatureMatch {
@@ -100,15 +41,11 @@ enum SignatureMatch {
 
 #[allow(dead_code)]
 impl MinecraftClass {
-    /// Builds a class entry from runtime reflection. Names are identity (no
-    /// obfuscation to translate); only signatures were discovered. Fields are
-    /// left empty — unobfuscated builds resolve field names directly.
+    /// Builds a class entry from runtime reflection: names are the real ones,
+    /// only signatures were discovered. Fields need no entry — they are
+    /// accessed by name with a descriptor the caller knows.
     pub fn from_reflection(name: String, methods: HashMap<String, Vec<Method>>) -> Self {
-        MinecraftClass {
-            name,
-            methods,
-            fields: HashMap::new(),
-        }
+        MinecraftClass { name, methods }
     }
 
     pub fn get_method(&self, name: &str) -> anyhow::Result<&Method> {
@@ -535,13 +472,6 @@ impl MinecraftClass {
     pub fn method_names(&self) -> Vec<String> {
         self.methods.keys().cloned().collect()
     }
-
-    pub fn get_field(&self, name: &str) -> anyhow::Result<&Field> {
-        match self.fields.get(name) {
-            Some(fields) => Ok(fields),
-            None => Err(anyhow!("{} field not found", name)),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -553,7 +483,6 @@ mod tests {
         let class = MinecraftClass {
             name: "TestClass".to_string(),
             methods: HashMap::new(),
-            fields: HashMap::new(),
         };
 
         // Test basic types
@@ -580,7 +509,6 @@ mod tests {
         let class = MinecraftClass {
             name: "TestClass".to_string(),
             methods: HashMap::new(),
-            fields: HashMap::new(),
         };
 
         // Test exact matches
@@ -600,24 +528,6 @@ mod tests {
             class.check_type_compatibility("I", &JValue::Double(42.0)),
             SignatureMatch::Incompatible
         );
-    }
-
-    #[test]
-    fn methods_deserialize_from_a_single_object_or_an_array() {
-        let json = r#"{
-            "name": "Obf",
-            "methods": {
-                "single": { "name": "a", "signature": "()V" },
-                "many": [
-                    { "name": "b", "signature": "(I)V" },
-                    { "name": "b", "signature": "(F)V" }
-                ]
-            },
-            "fields": {}
-        }"#;
-        let class: MinecraftClass = serde_json::from_str(json).unwrap();
-        assert_eq!(class.get_methods("single").unwrap().len(), 1);
-        assert_eq!(class.get_methods("many").unwrap().len(), 2);
     }
 
     #[test]
@@ -641,7 +551,6 @@ mod tests {
         let class = MinecraftClass {
             name: "T".into(),
             methods,
-            fields: HashMap::new(),
         };
 
         let chosen = class.get_method_by_args("foo", &[JValue::Int(7)]).unwrap();

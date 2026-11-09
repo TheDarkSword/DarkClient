@@ -48,7 +48,18 @@ impl eframe::App for InjectorGui {
             .frame(theme::footer_frame())
             .show(ctx, |ui| {
                 widgets::status_banner(ui, self.app.status());
-                ui.add_space(8.0);
+                ui.add_space(6.0);
+                let mut force = self.app.force();
+                if ui
+                    .checkbox(&mut force, "Ignore version check (development)")
+                    .on_hover_text(
+                        "Inject even into a Minecraft version DarkClient does not support",
+                    )
+                    .changed()
+                {
+                    self.app.set_force(force);
+                }
+                ui.add_space(6.0);
                 if widgets::inject_button(ui, &self.app).clicked() {
                     self.app.start_injection();
                 }

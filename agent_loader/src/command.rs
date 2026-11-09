@@ -1,6 +1,6 @@
 //! Command parsing and dispatch for a single client connection.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -24,10 +24,11 @@ pub fn handle_connection(stream: TcpStream) {
         return;
     }
 
-    match Command::decode(&line) {
+    let response = match Command::decode(&line) {
         Ok(Command::Reload {
             library,
             config_dir,
+            force,
         }) => {
             // The injector's working directory is where both this agent and
             // the client keep their files — set up logging there (keeping
@@ -37,11 +38,23 @@ pub fn handle_connection(stream: TcpStream) {
                 logging::init(&config_dir);
                 std::env::set_var("DARK_CONFIG_DIR", &config_dir);
             }
-            info!("reload command received: {}", library.display());
-            if let Err(e) = library::reload(&library) {
-                error!("reload failed: {e}");
-            }
+            info!(
+                "reload command received: {}{}",
+                library.display(),
+                if force { " (forced)" } else { "" }
+            );
+            library::reload(&library, force)
         }
-        Err(e) => error!("ignoring invalid command {:?}: {e}", line.trim()),
+        Err(e) => {
+            error!("ignoring invalid command {:?}: {e}", line.trim());
+            return;
+        }
+    };
+
+    // An injector that does not wait for the reply just closed the socket;
+    // that is fine.
+    let reply = format!("{}\n", response.encode());
+    if let Err(e) = reader.get_mut().write_all(reply.as_bytes()) {
+        info!("could not send the reply to the injector: {e}");
     }
 }

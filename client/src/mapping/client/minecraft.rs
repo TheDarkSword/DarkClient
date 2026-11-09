@@ -6,7 +6,7 @@ use crate::mapping::client::screen::Screen;
 use crate::mapping::client::window::Window;
 use crate::mapping::client::world::World;
 use crate::mapping::entity::player::LocalPlayer;
-use crate::mapping::minecraft_version::MinecraftVersion;
+use crate::mapping::MinecraftVersion;
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JObject, JValue};

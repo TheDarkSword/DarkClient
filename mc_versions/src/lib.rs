@@ -1,5 +1,24 @@
-use serde::{Deserialize, Deserializer};
+//! Minecraft versions: how they are compared, and which ones DarkClient
+//! supports.
+//!
+//! Shared by the injector (to refuse up front), the client (the authoritative
+//! check, from inside the game) and the tooling. Kept dependency-free so it
+//! never costs build time to the crates that use it.
 
+use std::fmt;
+
+/// Version ids — exactly as `version.json` / `WorldVersion.id()` report them —
+/// DarkClient is verified to work on, with vanilla, Fabric and Forge/NeoForge.
+/// Anything else, snapshots included, is refused unless the user forces it.
+pub const SUPPORTED_VERSIONS: &[&str] = &["26.1", "26.1.1", "26.1.2", "26.2", "26.3"];
+
+/// Whether `id` is a supported version.
+pub fn is_supported(id: &str) -> bool {
+    SUPPORTED_VERSIONS.contains(&id)
+}
+
+/// An ordered release version, used to gate behaviour that changed between
+/// releases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MinecraftVersion {
     pub major: u32,
@@ -8,9 +27,8 @@ pub struct MinecraftVersion {
 }
 
 impl MinecraftVersion {
-    /// Sentinel "newest possible" version, used for unobfuscated builds where
-    /// no version string is parsed: it makes every `version < X` gate resolve
-    /// to the latest branch.
+    /// Sentinel "newest possible" version, for a build whose version could
+    /// not be read: every `version >= X` gate resolves to the latest branch.
     pub const LATEST: MinecraftVersion = MinecraftVersion {
         major: u32::MAX,
         minor: 0,
@@ -25,10 +43,10 @@ impl MinecraftVersion {
         }
     }
 
-    /// Parses a game version id as `WorldVersion.id()` reports it: `26.3`,
-    /// `26.1.2`, or a pre-release such as `26.4-snapshot-7` / `26.1-rc-1`,
-    /// which already carries the names of the release it precedes. Legacy
-    /// weekly snapshot ids (`26w14a`) have no ordered form and yield `None`.
+    /// Parses a version id: `26.3`, `26.1.2`, or a pre-release such as
+    /// `26.4-snapshot-7` / `26.1-rc-1`, which already carries the names of the
+    /// release it precedes. Legacy weekly snapshot ids (`26w14a`) have no
+    /// ordered form and yield `None`.
     pub fn parse_id(id: &str) -> Option<MinecraftVersion> {
         let release = id.split('-').next()?;
         let mut parts = release.split('.').map(|part| part.parse::<u32>());
@@ -45,48 +63,15 @@ impl MinecraftVersion {
     }
 }
 
-impl std::fmt::Display for MinecraftVersion {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for MinecraftVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
-    }
-}
-
-impl<'de> Deserialize<'de> for MinecraftVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let parts: Vec<&str> = s.split('.').collect();
-
-        if parts.len() != 3 {
-            return Err(serde::de::Error::custom(format!(
-                "Invalid version format: {} (expected major.minor.patch)",
-                s
-            )));
-        }
-
-        let major = parts[0]
-            .parse::<u32>()
-            .map_err(|_| serde::de::Error::custom("Invalid major version"))?;
-        let minor = parts[1]
-            .parse::<u32>()
-            .map_err(|_| serde::de::Error::custom("Invalid minor version"))?;
-        let patch = parts[2]
-            .parse::<u32>()
-            .map_err(|_| serde::de::Error::custom("Invalid patch version"))?;
-
-        Ok(MinecraftVersion {
-            major,
-            minor,
-            patch,
-        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::MinecraftVersion;
+    use super::*;
 
     #[test]
     fn release_ids_parse_with_an_optional_patch() {
@@ -97,10 +82,6 @@ mod tests {
         assert_eq!(
             MinecraftVersion::parse_id("26.1.2"),
             Some(MinecraftVersion::new(26, 1, 2))
-        );
-        assert_eq!(
-            MinecraftVersion::parse_id("1.21.11"),
-            Some(MinecraftVersion::new(1, 21, 11))
         );
     }
 
@@ -122,5 +103,20 @@ mod tests {
         assert_eq!(MinecraftVersion::parse_id("26"), None);
         assert_eq!(MinecraftVersion::parse_id("1.2.3.4"), None);
         assert_eq!(MinecraftVersion::parse_id(""), None);
+    }
+
+    #[test]
+    fn versions_order_by_release() {
+        assert!(MinecraftVersion::new(26, 2, 0) > MinecraftVersion::new(26, 1, 2));
+        assert!(MinecraftVersion::LATEST > MinecraftVersion::new(26, 3, 0));
+    }
+
+    #[test]
+    fn only_listed_ids_are_supported() {
+        assert!(is_supported("26.3"));
+        assert!(is_supported("26.1.2"));
+        assert!(!is_supported("26.4-snapshot-7"));
+        assert!(!is_supported("1.21.11"));
+        assert!(!is_supported(""));
     }
 }

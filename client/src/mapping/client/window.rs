@@ -26,8 +26,8 @@ impl Window {
         })
     }
 
-    /// The native GLFW window handle. `Window.getWindow()` was renamed to
-    /// `handle()` in 1.21.9 — the rename registry maps it back on older builds.
+    /// The native window handle: a `GLFWwindow*` up to 26.2, an
+    /// `SDL_Window*` from 26.3.
     pub fn get_window(&self) -> anyhow::Result<jlong> {
         Ok(self.call_method("handle", &[])?.j()?)
     }

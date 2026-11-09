@@ -326,15 +326,12 @@ struct EspState {
     /// Game tick the entity snapshot was taken at.
     gathered_tick: Option<i32>,
     last_chest_scan: Option<Instant>,
-    /// Field of view currently used for projection — eased toward `target_fov`
-    /// each frame so flying / sprinting transitions do not snap the boxes.
+    /// Last field of view read from the camera, reused if a read fails.
     fov: f64,
-    /// Field of view the game is heading to, refreshed each gather.
-    target_fov: f64,
     /// Set once camera resolution has failed, so the failure is logged once.
     camera_logged: bool,
-    /// Set once the bobbing state could not be read (builds before 26.1), so
-    /// the projection stays unbobbed without retrying every frame.
+    /// Set once the bobbing state could not be read, so the projection stays
+    /// unbobbed without retrying every frame.
     bob_unavailable: bool,
     /// Set once the partial tick could not be read, likewise.
     partial_tick_unavailable: bool,
@@ -351,7 +348,6 @@ impl EspState {
             gathered_tick: None,
             last_chest_scan: None,
             fov: 70.0,
-            target_fov: 70.0,
             camera_logged: false,
             bob_unavailable: false,
             partial_tick_unavailable: false,
@@ -690,7 +686,7 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
         }
     };
 
-    let fov_deg = resolve_fov(&camera, state, ctx);
+    let fov_deg = resolve_fov(&camera, state);
     let bob = read_bob(state);
 
     Some(build_view(
@@ -704,82 +700,16 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
     ))
 }
 
-/// Per-frame FOV resolution.
-///
-/// Preferred path: read `Camera.fov` directly — the game writes the actually
-/// rendered FOV there each frame, already folding in the player modifier, the
-/// `fovEffectScale` blend, and the water / lava / dying tweaks. The field
-/// only exists on newer builds (it is missing from the obfuscated 1.21.x
-/// mappings), so we fall back to recomputing the modifier from options on
-/// older versions and ease the result so transitions stay smooth.
-fn resolve_fov(camera: &Camera, state: &mut EspState, ctx: &Context) -> f64 {
+/// The vertical FOV the frame was rendered with. `Camera.fov` is rewritten
+/// every frame with the player modifier, the `fovEffectScale` blend and the
+/// water / lava / dying tweaks already folded in.
+fn resolve_fov(camera: &Camera, state: &mut EspState) -> f64 {
     if let Ok(fov) = camera.fov() {
         if fov.is_finite() && fov > 0.0 {
-            // The cached easing state is no longer authoritative — re-seed it
-            // so an unexpected fall back later does not snap from a stale fov.
-            let snapped = (fov as f64).clamp(1.0, 179.0);
-            state.fov = snapped;
-            state.target_fov = snapped;
-            return snapped;
+            state.fov = (fov as f64).clamp(1.0, 179.0);
         }
     }
-
-    state.target_fov = formula_fov();
-    let dt = ctx.input(|input| input.stable_dt).clamp(0.0, 0.1) as f64;
-    let blend = 1.0 - 0.5_f64.powf(dt / 0.05);
-    state.fov += (state.target_fov - state.fov) * blend;
     state.fov
-}
-
-/// Fallback FOV computation, used when [`Camera::fov`] is not exposed by the
-/// running build (notably the obfuscated 1.21.x line).
-///
-/// Mirrors what `Player.getFieldOfViewModifier` does:
-/// `lerp(fovEffectScale, 1.0, raw_modifier)`. Reading the blend factor is
-/// what fixes ESP misalignment with the "FOV Effects" slider set below 1 —
-/// the previous code always applied the full modifier and so drifted off
-/// entities whenever the player had the effect dialled down.
-fn formula_fov() -> f64 {
-    let base = match read_option_fov() {
-        Ok(fov) if fov.is_finite() && (1.0..=179.0).contains(&fov) => fov,
-        _ => 70.0,
-    };
-    let raw = fov_modifier_raw();
-    let scale = read_fov_effect_scale().unwrap_or(1.0).clamp(0.0, 1.0);
-    let effective = 1.0 + (raw - 1.0) * scale;
-    (base * effective).clamp(1.0, 179.0)
-}
-
-/// The raw FOV multiplier Minecraft would apply, before the `fovEffectScale`
-/// blend: ×1.1 while flying, ≈×1.15 while sprinting — the constants from
-/// `Player.getFieldOfViewModifier` for a player at vanilla movement speed.
-/// (The exact formula also factors in attribute-modified walking speed; the
-/// approximation only drifts under Speed/Slowness effects, where the FOV
-/// modifier is small to begin with.)
-fn fov_modifier_raw() -> f64 {
-    let player = match minecraft().player() {
-        Ok(Some(player)) => player,
-        _ => return 1.0,
-    };
-
-    let mut modifier = 1.0;
-    if player.abilities.is_flying().unwrap_or(false) {
-        modifier *= 1.1;
-    }
-    if player.is_sprinting().unwrap_or(false) {
-        modifier *= 1.15;
-    }
-    modifier
-}
-
-/// Reads the raw FOV slider value from the game options.
-fn read_option_fov() -> anyhow::Result<f64> {
-    Ok(minecraft().options()?.fov()?.get_int()? as f64)
-}
-
-/// Reads the "FOV Effects" accessibility slider (0.0..=1.0).
-fn read_fov_effect_scale() -> anyhow::Result<f64> {
-    minecraft().options()?.fov_effect_scale()?.get_double()
 }
 
 // --- gather ----------------------------------------------------------------

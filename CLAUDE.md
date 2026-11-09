@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-DarkClient is a Minecraft (Java Edition) modification framework written in Rust. It injects native libraries into a running Minecraft JVM and drives the game through JNI. One build supports both **obfuscated** Minecraft (≤ 1.21.11, via bundled Mojmap mappings) and **unobfuscated** Minecraft (26.1+, via runtime JNI reflection) — see the mapping system below.
+DarkClient is a Minecraft (Java Edition) modification framework written in Rust. It injects native libraries into a running Minecraft JVM and drives the game through JNI. It targets **unobfuscated** Minecraft 26.x — vanilla, Fabric and Forge/NeoForge alike — and only the exact version ids in `mc_versions::SUPPORTED_VERSIONS`; anything else (snapshots included) is refused unless the user forces it. Obfuscated Minecraft (≤ 1.21.11) is not supported.
 
-It is a Cargo workspace of five crates — `protocol`, `injector`, `agent_loader`, `client`, `mapping_derive` — plus an `xtask` helper.
+It is a Cargo workspace of six crates — `mc_versions`, `protocol`, `injector`, `agent_loader`, `client`, `mapping_derive` — plus an `xtask` helper.
 
 ## Build & Common Commands
 
@@ -19,7 +19,6 @@ cargo test -p client overload      # run tests matching a name
 cargo fmt --all
 cargo clippy --workspace
 cargo xtask e2e                    # manual end-to-end harness (see Tests)
-python conversion.py               # regenerate mappings.json (needs the `requests` package)
 ```
 
 - **Always build `--release` for runtime artifacts.** The release profile (`opt-level = "s"`, `lto = true`) is what CI and runtime expect; debug builds also silence `dead_code` warnings via `lib.rs`.
@@ -28,8 +27,9 @@ python conversion.py               # regenerate mappings.json (needs the `reques
 
 ## Crate Roles
 
-- **`protocol/`** — small library shared by `injector` and `agent_loader`: the localhost socket address (`SOCKET_ADDR`), the typed `Command` enum with `encode`/`decode`, and a non-panicking file-logger helper.
-- **`injector/`** — standalone binary. A redesigned egui GUI (`gui/`); `--tui` for a crossterm TUI; `--list` / `--inject <pid>` headless modes. Discovers Minecraft processes, injects `agent_loader`, then drives the client. UI-agnostic core in `app.rs`; injection orchestration in `inject.rs`; the platform layer (`platform/`) is an `AgentInjector` trait with `linux` / `windows` / `macos` implementations.
+- **`mc_versions/`** — dependency-free: `MinecraftVersion` (parse/order version ids) and `SUPPORTED_VERSIONS` / `is_supported`, shared by injector and client.
+- **`protocol/`** — small library shared by `injector`, `agent_loader` and `client`: the localhost socket address (`SOCKET_ADDR`), the `Command` (injector → agent) and `Response` (agent → injector) line formats with `encode`/`decode`, the agent ↔ client C ABI (`client_abi`: symbol names, `StartFn` signature, status codes), and a non-panicking file-logger helper.
+- **`injector/`** — standalone binary. A redesigned egui GUI (`gui/`); `--tui` for a crossterm TUI; `--list` / `--inject <pid> [--force]` headless modes. Discovers Minecraft processes — reading the game version from `--fml.mcVersion` (Forge/NeoForge) or the `version.json` of the client jar on the class/module path (vanilla/Fabric); `--version` is only the launcher profile name — refuses a known unsupported version unless forced (GUI checkbox, TUI `f`, `--force`), injects `agent_loader`, then drives the client and shows its reply. UI-agnostic core in `app.rs`; injection orchestration in `inject.rs`; the platform layer (`platform/`) is an `AgentInjector` trait with `linux` / `windows` / `macos` implementations.
 - **`agent_loader/`** — `cdylib` injected first. A `#[ctor]` runs on load. Split into focused modules: `logging`, `jvm` (discovery + health monitor), `server` (TCP accept loop), `command` (dispatch), `library` (client lifecycle), `platform` (signal handlers).
 - **`client/`** — `cdylib`, the actual mod framework. JNI-driven game interaction, OpenGL overlay, module system.
 - **`mapping_derive/`** — `proc-macro` crate. Provides `#[derive(MappedObject)]` for the JVM-object wrappers in `client` (see *Game wrappers* below).
@@ -41,11 +41,11 @@ This is the core control flow and spans `injector`, `protocol`, `agent_loader`, 
 
 1. `injector` injects `libagent_loader.so`/`.dll` into the JVM process — ptrace (`ptrace-inject`) on Linux, `dll-syringe` on Windows.
 2. `agent_loader`'s `#[ctor]` `agent_onload()` starts a TCP server on `protocol::SOCKET_ADDR` (**`127.0.0.1:7878`** — defined once, in `protocol`).
-3. `injector` connects and sends a `protocol::Command::Reload { library, config_dir }` — the absolute libclient path plus the injector's own working directory. The agent loader exports `config_dir` as the `DARK_CONFIG_DIR` env var so the client knows where to keep its config.
-4. `agent_loader`'s `library` module copies the library to a uniquely named temp file (avoids file locks), `dlopen`s it, and calls the exported `initialize_client`.
+3. `injector` connects and sends a `protocol::Command::Reload { library, config_dir, force }` — the absolute libclient path, the injector's own working directory and the version-check override. The agent loader exports `config_dir` as the `DARK_CONFIG_DIR` env var so the client knows where to keep its config.
+4. `agent_loader`'s `library` module copies the library to a uniquely named temp file (avoids file locks), `dlopen`s it, and calls the exported `start_client`. The client builds its `Mapping`, reads the running version and, if it is not supported (and not forced), returns `UNSUPPORTED` without installing anything; the agent then cleans it up and drops it. The agent answers the injector with a `protocol::Response` (`started` / `unsupported` / `failed`) on the same connection.
 5. Re-injecting repeats step 3 → `library::reload` cleans up and drops the old library (calling `cleanup_client`) before loading the new one. This is the hot-reload path.
 
-`client` exposes exactly two `#[no_mangle] extern "C"` symbols: `initialize_client` and `cleanup_client`. `initialize_client` spawns a thread that calls `state::init()`, then `register_modules()`, then installs hooks — in that fixed order.
+`client` exposes exactly two `#[no_mangle] extern "C"` symbols, typed by `protocol::client_abi`: `start_client` and `cleanup_client`. `start_client` runs `state::init_mapping()` and the version check synchronously, then spawns a thread that calls `state::init_client()`, `register_modules()`, `config::load()` and installs hooks — in that fixed order.
 
 ## client/ Internals
 
@@ -73,24 +73,21 @@ This is the core control flow and spans `injector`, `protocol`, `agent_loader`, 
 
 The entity wrappers (`mapping/entity/`) mirror Minecraft's `Entity → LivingEntity → Player` class hierarchy with **traits**, since Rust has no inheritance: `PlayerRef: LivingEntityRef: EntityRef`, each a trait of provided methods. A wrapper struct (`Entity`, `LivingEntity`, `Mob`, `Player`, `LocalPlayer`) is `{ jni_ref }` plus empty `impl`s of the trait for its level and every level below — so a `Player` value can call `Entity`, `LivingEntity` and `Player` methods directly (the methods reflect against the wrapper's own class, and reflection resolves inherited methods). Static dispatch — zero-cost.
 
-**Mapping system** (`mapping/`): bridges deobfuscated (Mojmap) names — what `MinecraftClassType` and the rest of the code use — to whatever the running JVM actually exposes. `Mapping::new()` auto-detects the build and picks one of two modes:
+**Mapping system** (`mapping/`): bridges the Mojmap names the code uses — `MinecraftClassType` and member string literals — to the running JVM. Minecraft 26.x is unobfuscated, so names are the real ones; method signatures — still required by JNI — are discovered lazily via `java.lang.Class` reflection in `reflect.rs` and cached. `Mapping::new()` fails on an obfuscated build (the Mojmap `Minecraft` class does not resolve).
 
-- **Obfuscated** (`Mode::Obfuscated`): `mappings.json` and `java_mappings.json` (project root, **`include_str!`'d at compile time**) are parsed into a class map; names are translated deobfuscated → obfuscated.
-- **Reflected** (`Mode::Reflected`): unobfuscated builds (Minecraft 26.1+). No JSON is used; class/method/field names are identity, and method signatures — still required by JNI — are discovered lazily via `java.lang.Class` reflection in `reflect.rs` and cached.
+Mojang still renames symbols between unobfuscated releases, so `Mapping` reads the running version from `SharedConstants.getCurrentVersion().id()` through the game class loader (identical on vanilla, Fabric and Forge): `version_id()` is the exact id the supported-version check compares, `get_version()` the parsed one for gates (`26.4-snapshot-7` → 26.4.0; unparsable → `MinecraftVersion::LATEST`). Code always uses the **latest** names; `renames.rs` maps them back for older versions. The registry is keyed by the class of the wrapper a call is made on, so members inherited through the entity traits, and structural moves (26.2 moved the open screen to `Minecraft.gui.screen()`), use an inline `mapping().get_version() >= MinecraftVersion::new(..)` gate instead.
 
-Mojang still renames symbols between unobfuscated releases, so a reflected `Mapping` reads the running version from `SharedConstants.getCurrentVersion().id()` (`26.4-snapshot-7` parses as 26.4.0; unparsable → `MinecraftVersion::LATEST`). Code always uses the **latest** names; `renames.rs` maps them back for older versions. The registry is keyed by the class of the wrapper a call is made on, so members inherited through the entity traits, and structural moves (26.2 moved the open screen to `Minecraft.gui.screen()`), use an inline `mapping().get_version() >= MinecraftVersion::new(..)` gate instead.
+Reflected classes and resolved class handles live in `DashMap`s (`classes`, `class_handles`). `Mapping` owns its `JavaVM` handle and wraps all JNI calls (`call_method`, `call_static_method`, `get_field`, `set_field`, …); `class.rs` does overload resolution by scoring argument-type compatibility against JNI signatures.
 
-Both modes share one code path: `DashMap`s (`classes`, `class_handles`) populated up-front (obfuscated) or lazily by reflection. `Mapping` owns its `JavaVM` handle and wraps all JNI calls (`call_method`, `call_static_method`, `get_field`, `set_field`, …); `class.rs` does overload resolution by scoring argument-type compatibility against JNI signatures.
-
-**Mod loaders (`mapping/loader.rs`)**: Fabric and Forge/NeoForge run the game in an isolated class loader, so `find_class` from a native thread resolves a dead duplicate of `Minecraft` whose static `instance` is null. `Mapping::new()` calls `loader::discover_game_loader` first — it scans every live thread's context class loader and keeps the one whose `Minecraft.getInstance()` is non-null. That loader is stored in `class_loader` so every later lookup goes through `ClassLoader.loadClass`. This works loader-agnostically for vanilla, Fabric and Forge on unobfuscated builds; obfuscated Minecraft under a mod loader is not supported.
+**Mod loaders (`mapping/loader.rs`)**: Fabric and Forge/NeoForge run the game in an isolated class loader, so `find_class` from a native thread resolves a dead duplicate of `Minecraft` whose static `instance` is null. `Mapping::new()` calls `loader::discover_game_loader` first — it scans every live thread's context class loader and keeps the one whose `Minecraft.getInstance()` is non-null. That loader is stored in `class_loader` so every later lookup goes through `ClassLoader.loadClass`. This works loader-agnostically for vanilla, Fabric and Forge/NeoForge.
 
 **Packet layer** (`net/`): intercepts the Minecraft↔server connection — used by modules that must read or rewrite packets (NoFall, Velocity). A thin Netty bridge handler, `DarkChannelHandler` (Java source + committed `.class` in `client/java/`, bytecode embedded via `include_bytes!`), is `DefineClass`'d into the game class loader, its `native` methods bound with `RegisterNatives`, and an instance inserted into the live `Connection`'s Netty pipeline *before* Minecraft's own `packet_handler` (so it sees inbound and outbound packets before the game does) — pure JNI, no JVMTI. A class name can be `DefineClass`'d only once per loader, so on hot-reload the existing class is reused and only its natives are rebound to the new library. `net::ensure_installed` (polled each tick) keeps it installed; `net::teardown` removes it before unload. The handler calls back into `net::dispatch`, which wraps the JVM packet into a `Packet` value-snapshot (`net/packet/`) and offers it to every enabled module's `Module::handle_packet`. A module may **mutate** the snapshot in place — the dispatch then rebuilds a fresh JVM object that replaces the original — or return `PacketAction::Cancel` to **drop** the packet entirely (the callback returns `null`, which the Java handler discards; works for inbound and outbound alike). Minecraft packets are strictly directional, so `Packet::from_outbound` (`Serverbound*`) and `from_inbound` (`Clientbound*`) only probe their own variants; unhandled types return `None` and pass straight through. Packet class names live in the `MinecraftClassType` enum (`mapping/class_type.rs`), not as string literals — each `net/packet/` module exposes a `CLASS_TYPE` constant. All packet/Netty JNI uses explicit descriptors — no reflection. To support a new packet, add its class(es) to `MinecraftClassType`, a value-snapshot module under `net/packet/`, and a `Packet` variant named after the Java class.
 
-**Lifecycle safety**: the global `RUNNING: AtomicBool` gates `on_frame` and the Vulkan present hook. A panic hook in `initialize_client` calls `cleanup_client` so input/render hooks are always uninstalled and GLFW callbacks / the SDL event filter restored, even on panic.
+**Lifecycle safety**: the global `RUNNING: AtomicBool` gates `on_frame` and the Vulkan present hook. A panic hook installed by `start_client` calls `cleanup_client` so input/render hooks are always uninstalled and GLFW callbacks / the SDL event filter restored, even on panic.
 
-## Mappings
+## Supported versions
 
-`conversion.py` downloads official Mojang mappings for a chosen **obfuscated** Minecraft version (≤ 1.21.11) and writes the custom `mappings.json` format. The committed `mappings.json` is ~18 MB. `java_mappings.json` is a small hand-written supplement for `java.*` classes, merged in at load time. Unobfuscated versions (26.1+) need none of this — they go through the reflected mapping path. The 26.1 runtime requires JDK 25.
+`mc_versions::SUPPORTED_VERSIONS` lists the exact version ids DarkClient is verified on. Adding one means checking every member the client uses against that version (renames → `renames.rs` or a version gate) and testing it in game. No mapping files are involved: 26.x ships unobfuscated. The 26.x runtime requires JDK 25.
 
 ## Tests
 
