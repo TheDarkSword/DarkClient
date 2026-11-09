@@ -23,6 +23,7 @@ impl NametagsModule {
                     ModuleSetting::Color {
                         name: "Color".to_string(),
                         value: [1.0, 1.0, 1.0, 1.0],
+                        alpha: true,
                     },
                     ModuleSetting::Toggle {
                         name: "Health".to_string(),

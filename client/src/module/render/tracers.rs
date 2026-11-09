@@ -23,6 +23,7 @@ impl TracersModule {
                     ModuleSetting::Color {
                         name: "Color".to_string(),
                         value: [0.4, 0.8, 1.0, 1.0],
+                        alpha: true,
                     },
                     ModuleSetting::Toggle {
                         name: "Players".to_string(),

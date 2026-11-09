@@ -455,27 +455,33 @@ fn draw_settings(ui: &mut Ui, data: &mut ModuleData, arc: &ModuleArc, registry: 
                                 }
                             });
                     }
-                    ModuleSetting::Color { name, value } => {
+                    ModuleSetting::Color { name, value, alpha } => {
                         ui.horizontal(|ui| {
                             ui.label(label(name));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                // Alpha is fixed at 1.0 — the picker omits the
-                                // A channel; the stored alpha is preserved so
-                                // existing configs are not rewritten.
-                                let mut rgba = egui::Rgba::from_rgba_unmultiplied(
-                                    value[0], value[1], value[2], 1.0,
-                                );
-                                let changed = egui::color_picker::color_edit_button_rgba(
-                                    ui,
-                                    &mut rgba,
-                                    egui::color_picker::Alpha::Opaque,
-                                )
-                                .changed();
-                                if changed {
-                                    let [r, g, b, _] = rgba.to_array();
-                                    value[0] = r;
-                                    value[1] = g;
-                                    value[2] = b;
+                                // Edited as sRGB — the space the values are drawn
+                                // in — and read back unmultiplied, so the swatch
+                                // matches what is drawn and alpha never darkens
+                                // the color.
+                                let [r, g, b, a] = value.map(|c| (c * 255.0).round() as u8);
+                                let mut color = Color32::from_rgba_unmultiplied(r, g, b, a);
+                                let mode = if *alpha {
+                                    egui::color_picker::Alpha::OnlyBlend
+                                } else {
+                                    egui::color_picker::Alpha::Opaque
+                                };
+                                if egui::color_picker::color_edit_button_srgba(ui, &mut color, mode)
+                                    .changed()
+                                {
+                                    let [r, g, b, a] = color.to_srgba_unmultiplied();
+                                    let a = if *alpha { a } else { 255 };
+                                    if a == 0 {
+                                        // Fully transparent premultiplied color has
+                                        // no RGB left: keep the stored one.
+                                        value[3] = 0.0;
+                                    } else {
+                                        *value = [r, g, b, a].map(|c| c as f32 / 255.0);
+                                    }
                                 }
                             });
                         });

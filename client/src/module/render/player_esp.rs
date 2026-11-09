@@ -22,6 +22,7 @@ impl PlayerEspModule {
                     ModuleSetting::Color {
                         name: "Color".to_string(),
                         value: [1.0, 0.27, 0.27, 1.0],
+                        alpha: true,
                     },
                     ModuleSetting::Toggle {
                         name: "Name".to_string(),

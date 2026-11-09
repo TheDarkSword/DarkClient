@@ -126,7 +126,11 @@ pub enum ModuleSetting {
     },
     Color {
         name: String,
+        /// sRGB components and alpha, unmultiplied, each `0.0..=1.0`.
         value: [f32; 4],
+        /// Whether the picker offers the alpha channel — only for colors
+        /// whose consumer actually draws with it.
+        alpha: bool,
     },
 }
 

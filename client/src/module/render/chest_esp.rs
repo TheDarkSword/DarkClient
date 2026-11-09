@@ -23,6 +23,7 @@ impl ChestEspModule {
                     ModuleSetting::Color {
                         name: "Color".to_string(),
                         value: [1.0, 0.55, 0.12, 1.0],
+                        alpha: true,
                     },
                     ModuleSetting::Toggle {
                         name: "Distance".to_string(),

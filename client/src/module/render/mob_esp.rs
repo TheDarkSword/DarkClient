@@ -22,6 +22,7 @@ impl MobEspModule {
                     ModuleSetting::Color {
                         name: "Color".to_string(),
                         value: [1.0, 0.84, 0.2, 1.0],
+                        alpha: true,
                     },
                     ModuleSetting::Toggle {
                         name: "Name".to_string(),
