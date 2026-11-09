@@ -68,6 +68,7 @@ net/minecraft/world/phys/BlockHitResult
 net/minecraft/world/phys/Vec3
 net/minecraft/network/Connection
 net/minecraft/network/protocol/game/ClientGamePacketListener
+net/minecraft/network/protocol/Packet
 net/minecraft/WorldVersion
 net/minecraft/world/item/component/SwingAnimation
 

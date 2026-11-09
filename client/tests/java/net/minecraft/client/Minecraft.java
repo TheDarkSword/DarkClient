@@ -1,6 +1,7 @@
 package net.minecraft.client;
 
 import com.mojang.blaze3d.platform.Window;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
@@ -20,6 +21,7 @@ public class Minecraft {
     public ClientLevel level;
     public MultiPlayerGameMode gameMode;
     public Screen screen;
+    public final Gui gui = new Gui();
     private final Window window = new Window();
 
     public static Minecraft getInstance() {

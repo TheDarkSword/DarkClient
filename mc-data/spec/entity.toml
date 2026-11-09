@@ -1,5 +1,3 @@
-# Entities and the player.
-
 [[class]]
 name = "net/minecraft/world/entity/Entity"
   [[class.method]]
@@ -17,11 +15,14 @@ name = "net/minecraft/world/entity/Entity"
   descriptor = "()F"
   [[class.method]]
   name = "setYRot"
+  params = ["y_rot"]
   [[class.method]]
   name = "setXRot"
+  params = ["x_rot"]
   [[class.method]]
   name = "distanceToSqr"
   descriptor = "(DDD)D"
+  params = ["x", "y", "z"]
   [[class.method]]
   name = "getBbWidth"
   [[class.method]]
@@ -30,6 +31,7 @@ name = "net/minecraft/world/entity/Entity"
   name = "isSprinting"
   [[class.method]]
   name = "setSprinting"
+  params = ["sprinting"]
   [[class.method]]
   name = "onGround"
   [[class.method]]
@@ -37,13 +39,16 @@ name = "net/minecraft/world/entity/Entity"
   [[class.method]]
   name = "setDeltaMovement"
   descriptor = "(DDD)V"
+  params = ["x", "y", "z"]
   [[class.method]]
   name = "setPos"
   descriptor = "(DDD)V"
+  params = ["x", "y", "z"]
   [[class.method]]
   name = "isShiftKeyDown"
   [[class.method]]
   name = "setPermanentlyInvulnerable"
+  params = ["invulnerable"]
   [[class.method]]
   name = "resetFallDistance"
   [[class.method]]
@@ -84,7 +89,7 @@ name = "net/minecraft/world/entity/LivingEntity"
   name = "getItemInHand"
   [[class.method]]
   name = "getEquipmentSlotForItem"
-  # Main-hand swing as an attack; 26.3 needs the held item's animation.
+  # Swing as an attack; 26.3 needs the held item's animation.
   [[class.method]]
   name = "swing"
   descriptor = "(Lnet/minecraft/world/InteractionHand;)V"
@@ -92,6 +97,7 @@ name = "net/minecraft/world/entity/LivingEntity"
   name = "swing"
   descriptor = "(Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/item/component/SwingAnimation;Z)Z"
   rust = "swing_with_animation"
+  params = ["hand", "animation", "send_to_server"]
   since = "26.3"
   [[class.field]]
   name = "xxa"
@@ -111,6 +117,7 @@ name = "net/minecraft/world/entity/player/Player"
   name = "getAbilities"
   [[class.method]]
   name = "getAttackStrengthScale"
+  params = ["adjust_ticks"]
   [[class.field]]
   name = "containerMenu"
 
@@ -118,6 +125,10 @@ name = "net/minecraft/world/entity/player/Player"
 name = "net/minecraft/client/player/LocalPlayer"
   [[class.field]]
   name = "connection"
+  nullable = true
+  [[class.field]]
+  name = "playerInfo"
+  nullable = true
 
 [[class]]
 name = "net/minecraft/world/entity/player/Abilities"
@@ -129,24 +140,25 @@ name = "net/minecraft/world/entity/player/Abilities"
   set = true
   [[class.method]]
   name = "setFlyingSpeed"
+  params = ["speed"]
 
 [[class]]
 name = "net/minecraft/world/entity/player/Inventory"
   [[class.method]]
   name = "getItem"
+  params = ["slot"]
 
 [[class]]
 name = "net/minecraft/world/entity/EquipmentSlot"
   [[class.method]]
   name = "getIndex"
   descriptor = "(I)I"
+  params = ["base"]
+  [[class.method]]
+  name = "isArmor"
 
 [[class]]
 name = "net/minecraft/world/InteractionHand"
-  [[class.field]]
-  name = "MAIN_HAND"
 
 [[class]]
 name = "net/minecraft/world/level/GameType"
-  [[class.field]]
-  name = "SPECTATOR"

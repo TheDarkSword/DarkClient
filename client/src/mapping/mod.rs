@@ -36,7 +36,7 @@ mod jvm_test;
 /// generated bindings.
 #[derive(Debug)]
 pub struct Mapping {
-    runtime: Runtime,
+    runtime: &'static Runtime,
     /// Classes reflected so far. A `DashMap` so the render thread reads it
     /// without contending on one global lock.
     classes: DashMap<String, Arc<MinecraftClass>>,
@@ -77,14 +77,14 @@ impl FieldType {
 impl Mapping {
     pub fn new() -> anyhow::Result<Mapping> {
         Ok(Mapping {
-            runtime: Runtime::new()?,
+            runtime: Runtime::install()?,
             classes: DashMap::new(),
         })
     }
 
     /// The shared JNI runtime — what the generated bindings run on.
-    pub fn runtime(&self) -> &Runtime {
-        &self.runtime
+    pub fn runtime(&self) -> &'static Runtime {
+        self.runtime
     }
 
     /// A binding context for the current thread.

@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::{OnceLock, RwLock};
 
 use dashmap::DashMap;
@@ -30,9 +31,22 @@ pub struct Runtime {
     /// Resolved JVM classes — and known-missing ones (`None`) — keyed by JNI
     /// name, so a class is searched for at most once.
     classes: DashMap<String, Option<GlobalRef>>,
+    /// Keyed by the address of the constant's `Field` target.
+    constants: DashMap<usize, GlobalRef>,
     /// Which binding table the generated bindings use for this version,
     /// computed on first use.
     binding_group: OnceLock<usize>,
+}
+
+static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+
+thread_local! {
+    /// A plain pointer on purpose: no TLS destructor, so unloading isn't pinned.
+    static THREAD_ENV: Cell<*mut jni::sys::JNIEnv> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+pub fn runtime() -> Result<&'static Runtime> {
+    RUNTIME.get().ok_or(Error::NoRuntime)
 }
 
 /// Whether the vanilla `Minecraft` class resolves from this thread.
@@ -84,15 +98,31 @@ impl Runtime {
             version_id: None,
             class_loader: RwLock::new(game_loader),
             classes: DashMap::new(),
+            constants: DashMap::new(),
             binding_group: OnceLock::new(),
         };
         runtime.read_version();
         Ok(runtime)
     }
 
-    /// Attaches the current thread to the JVM and returns its environment.
+    pub fn install() -> Result<&'static Runtime> {
+        if let Some(runtime) = RUNTIME.get() {
+            return Ok(runtime);
+        }
+        let runtime = Runtime::new()?;
+        Ok(RUNTIME.get_or_init(|| runtime))
+    }
+
+    /// Attaches the thread as a daemon the first time.
     pub fn env(&self) -> Result<JNIEnv<'_>> {
-        Ok(self.jvm.attach_current_thread_as_daemon()?)
+        let cached = THREAD_ENV.with(Cell::get);
+        if !cached.is_null() {
+            // SAFETY: obtained on this thread; a daemon attachment lasts as long as the thread.
+            return Ok(unsafe { JNIEnv::from_raw(cached)? });
+        }
+        let env = self.jvm.attach_current_thread_as_daemon()?;
+        THREAD_ENV.with(|slot| slot.set(env.get_raw()));
+        Ok(env)
     }
 
     /// A binding context for the current thread.
@@ -125,6 +155,7 @@ impl Runtime {
     /// class and the game class loader. Afterwards lookups re-resolve lazily.
     pub fn teardown(&self) {
         self.classes.clear();
+        self.constants.clear();
         if let Ok(mut loader) = self.class_loader.write() {
             *loader = None;
         }
@@ -204,6 +235,29 @@ impl Runtime {
         }
         self.classes.insert(jni_name.to_owned(), handle);
         resolved
+    }
+
+    pub fn class_global(&self, env: &mut JNIEnv, jni_name: &str) -> Result<GlobalRef> {
+        if let Some(cached) = self.classes.get(jni_name) {
+            return match cached.value() {
+                Some(handle) => Ok(handle.clone()),
+                None => Err(Error::ClassNotFound(jni_name.to_owned())),
+            };
+        }
+        let local = self.resolve_class(env, jni_name)?;
+        let _ = env.delete_local_ref(local);
+        match self.classes.get(jni_name).as_deref() {
+            Some(Some(handle)) => Ok(handle.clone()),
+            _ => Err(Error::ClassNotFound(jni_name.to_owned())),
+        }
+    }
+
+    pub(crate) fn constant(&self, key: usize) -> Option<GlobalRef> {
+        self.constants.get(&key).map(|entry| entry.value().clone())
+    }
+
+    pub(crate) fn store_constant(&self, key: usize, value: GlobalRef) {
+        self.constants.insert(key, value);
     }
 
     /// Looks a class up from scratch: through the game class loader if known,

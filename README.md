@@ -81,8 +81,10 @@ How one build runs on every supported Minecraft version:
   style; `mc-data/dumps/` holds each version's bound classes, read from the
   game jars by `cargo xtask mc-dump`.
 - `cargo xtask bindgen` checks that every member resolves on every dumped
-  version and generates `mc-bindings` — typed functions that call the right
-  member on the running version — and the supported-version list.
+  version and generates `mc-bindings` — the Minecraft classes as Rust types
+  (handles that deref along the class hierarchy, Rust enums, value structs)
+  whose methods call the right member on the running version — and the
+  supported-version list.
 - `mc-runtime` is what the bindings run on: the JVM, the game class loader
   (vanilla, Fabric, Forge/NeoForge) and cached JNI ids.
 
@@ -199,7 +201,7 @@ DarkClient/
 ├── 📁 xtask/                # Task runner: e2e, mc-dump, bindgen
 ├── 📁 mc-versions/          # Supported versions (generated) + version parsing
 ├── 📁 mc-runtime/           # JVM, game class loader, cached JNI ids
-├── 📁 mc-bindings/          # Generated per-version bindings + shims
+├── 📁 mc-bindings/          # Minecraft classes as Rust types (generated) + shims
 ├── 📁 mc-bindgen/           # Tooling: dumps from the game jars, bindings generator
 ├── 📁 mc-data/              # Spec, version adapters, per-version dumps
 └── 📄 Cargo.toml            # Workspace configuration

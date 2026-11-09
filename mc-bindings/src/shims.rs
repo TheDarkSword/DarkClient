@@ -1,30 +1,19 @@
-//! Hand-written members, for versions where a spec member has no direct
-//! counterpart. Each is named by a `[[shim]]` in `mc-data/adapters/` and takes
-//! the same arguments as the generated function it stands in for.
+//! Members written by hand where a version has no direct equivalent; each one
+//! is named by a `[[shim]]` in `mc-data/adapters/`.
 
-use jni::objects::JObject;
-use mc_runtime::{Cx, Result};
+use crate::{Gui, InteractionHand, LivingEntity, Result, Screen};
 
-use crate::{Gui, ItemStack, LivingEntity, Minecraft};
-
-/// `Gui.screen()` before 26.2, where the open screen was `Minecraft.screen`.
-pub(crate) fn gui_screen_from_minecraft<'l>(
-    cx: &mut Cx<'l>,
-    gui: &JObject<'_>,
-) -> Result<JObject<'l>> {
-    let minecraft = Gui::minecraft(cx, gui)?;
-    Minecraft::screen(cx, &minecraft)
+// Before 26.2 the open screen was `Minecraft.screen`.
+pub(crate) fn gui_screen_from_minecraft(gui: &Gui) -> Result<Option<Screen>> {
+    gui.minecraft()?.screen()
 }
 
-/// `LivingEntity.swing(hand)` from 26.3, where a swing carries the held
-/// item's attack animation — as `Minecraft.startAttack` passes it.
+// From 26.3 a swing takes the held item's attack animation.
 pub(crate) fn swing_with_attack_animation(
-    cx: &mut Cx<'_>,
-    entity: &JObject<'_>,
-    hand: &JObject<'_>,
+    entity: &LivingEntity,
+    hand: InteractionHand,
 ) -> Result<()> {
-    let stack = LivingEntity::get_item_in_hand(cx, entity, hand)?;
-    let animation = ItemStack::get_attack_animation(cx, &stack)?;
-    LivingEntity::swing_with_animation(cx, entity, hand, &animation, false)?;
+    let animation = entity.get_item_in_hand(hand)?.get_attack_animation()?;
+    entity.swing_with_animation(hand, &animation, false)?;
     Ok(())
 }

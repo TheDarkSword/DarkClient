@@ -262,27 +262,155 @@ fn binding_targets_reach_methods_fields_and_constructors() {
     ));
 }
 
+/// A new fixture object of `class` (no-argument constructor) as a handle.
+fn new_object(class: &str) -> mc_bindings::Object {
+    let mut env = jvm().attach_current_thread_as_daemon().unwrap();
+    let local = env.new_object(class, "()V", &[]).unwrap();
+    mc_bindings::Object::from_local(&local).unwrap().unwrap()
+}
+
 #[test]
-fn generated_bindings_reach_the_fixture_game_classes() {
-    use mc_bindings::{Abilities, Minecraft, Player, Window};
+fn generated_handles_follow_the_class_hierarchy() {
+    use mc_bindings::{Entity, LocalPlayer, Minecraft, Player, Window};
 
-    let mapping = reflected_mapping();
-    let mut cx = mapping.cx().unwrap();
-    let minecraft = Minecraft::get_instance(&mut cx).unwrap();
-    assert!(Minecraft::is_instance(&mut cx, &minecraft).unwrap());
-    let window = Minecraft::get_window(&mut cx, &minecraft).unwrap();
-    assert!(Window::is_instance(&mut cx, &window).unwrap());
+    reflected_mapping();
+    let minecraft = Minecraft::get_instance().unwrap();
+    assert!(minecraft.is::<Minecraft>().unwrap());
+    let window = minecraft.get_window().unwrap();
+    assert!(window.is::<Window>().unwrap());
 
-    let player = cx
-        .env()
-        .new_object("net/minecraft/client/player/LocalPlayer", "()V", &[])
-        .unwrap();
-    assert!(Player::is_instance(&mut cx, &player).unwrap());
-    let abilities = Player::get_abilities(&mut cx, &player).unwrap();
-    Abilities::set_mayfly(&mut cx, &abilities, true).unwrap();
-    assert!(Abilities::mayfly(&mut cx, &abilities).unwrap());
-    assert!(!Abilities::flying(&mut cx, &abilities).unwrap());
+    let object = new_object("net/minecraft/client/player/LocalPlayer");
+    assert!(object.cast::<Entity>().unwrap().is_some());
+    let player: LocalPlayer = object.cast().unwrap().unwrap();
+    // Player and Entity members, through `Deref`.
+    let abilities = player.get_abilities().unwrap();
+    abilities.set_mayfly(true).unwrap();
+    assert!(abilities.mayfly().unwrap());
+    assert!(!abilities.flying().unwrap());
+    assert!(player.get_id().unwrap() > 0);
+    let as_player: &Player = &player;
+    assert!(as_player.is_same(&player));
+    assert!(window.cast::<Player>().unwrap().is_none());
 
     // Absent from the fixture: an error, never a crash.
-    assert!(Minecraft::get_delta_tracker(&mut cx, &minecraft).is_err());
+    assert!(minecraft.get_delta_tracker().is_err());
+}
+
+#[test]
+fn generated_enums_values_and_collections_convert() {
+    use mc_bindings::{ClientLevel, InteractionHand, LivingEntity, Vec3};
+
+    reflected_mapping();
+    let entity: LivingEntity = new_object("net/minecraft/world/entity/LivingEntity")
+        .cast()
+        .unwrap()
+        .unwrap();
+    // Enum arguments reach Java as the right constant.
+    assert!(!entity
+        .get_item_in_hand(InteractionHand::MainHand)
+        .unwrap()
+        .is_empty()
+        .unwrap());
+    assert!(entity
+        .get_item_in_hand(InteractionHand::OffHand)
+        .unwrap()
+        .is_empty()
+        .unwrap());
+    let constant = InteractionHand::OffHand.to_object().unwrap();
+    assert_eq!(
+        InteractionHand::from_object(&constant).unwrap(),
+        InteractionHand::OffHand
+    );
+
+    // Value classes are plain structs, both ways.
+    assert_eq!(entity.position().unwrap(), Vec3::new(1.5, 64.0, -2.25));
+    let object = Vec3::new(3.0, -1.0, 0.5).to_object().unwrap();
+    assert_eq!(
+        Vec3::from_object(&object).unwrap(),
+        Vec3::new(3.0, -1.0, 0.5)
+    );
+    assert!(Vec3::from_object(&constant).is_err());
+
+    // Collections become `Vec`s of checked handles.
+    let level: ClientLevel = new_object("net/minecraft/client/multiplayer/ClientLevel")
+        .cast()
+        .unwrap()
+        .unwrap();
+    let entities = level.entities_for_rendering().unwrap();
+    assert_eq!(entities.len(), 2);
+    assert!(entities[1].is::<LivingEntity>().unwrap());
+}
+
+#[test]
+fn final_fields_and_constants_are_read_once() {
+    use mc_bindings::{Items, Minecraft};
+
+    reflected_mapping();
+    let minecraft = Minecraft::get_instance().unwrap();
+    let gui = minecraft.gui().unwrap();
+    assert!(gui.is_same(&minecraft.gui().unwrap()));
+    assert!(gui.screen().unwrap().is_none());
+    let totem = Items::totem_of_undying().unwrap();
+    assert!(totem.is_same(&Items::totem_of_undying().unwrap()));
+}
+
+/// Cost of the generated calls — `cargo test -p client --release -- --ignored
+/// binding_call_cost --nocapture`.
+#[test]
+#[ignore]
+fn binding_call_cost() {
+    use mc_bindings::{ClientLevel, Entity, Minecraft};
+    use std::time::Instant;
+
+    let mapping = reflected_mapping();
+    let entity: Entity = new_object("net/minecraft/world/entity/Entity")
+        .cast()
+        .unwrap()
+        .unwrap();
+    let minecraft = Minecraft::get_instance().unwrap();
+    let level: ClientLevel = new_object("net/minecraft/client/multiplayer/ClientLevel")
+        .cast()
+        .unwrap()
+        .unwrap();
+    const CALLS: u32 = 200_000;
+    let time = |what: &str, f: &mut dyn FnMut()| {
+        let start = Instant::now();
+        for _ in 0..CALLS {
+            f();
+        }
+        println!("{what}: {:?}/call", start.elapsed() / CALLS);
+    };
+    time("warm-up", &mut || {
+        entity.get_id().unwrap();
+    });
+    time("int method (getId)", &mut || {
+        entity.get_id().unwrap();
+    });
+    time("int method, reflection path (getId)", &mut || {
+        let mut env = mapping.get_env().unwrap();
+        env.with_local_frame(4, |_| {
+            mapping
+                .call_method(
+                    crate::mapping::MinecraftClassType::Entity,
+                    entity.as_obj(),
+                    "getId",
+                    &[],
+                )
+                .map(|value| value.i())
+        })
+        .unwrap()
+        .unwrap();
+    });
+    time("value result (position → Vec3)", &mut || {
+        entity.position().unwrap();
+    });
+    time("handle result (getWindow)", &mut || {
+        minecraft.get_window().unwrap();
+    });
+    time("cached final field (gui)", &mut || {
+        minecraft.gui().unwrap();
+    });
+    time("collection of 2 (entitiesForRendering)", &mut || {
+        level.entities_for_rendering().unwrap();
+    });
 }

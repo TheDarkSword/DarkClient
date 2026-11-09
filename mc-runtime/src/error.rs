@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-/// Anything that can go wrong talking to the game through JNI.
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("no JVM found in this process")]
@@ -22,6 +21,17 @@ pub enum Error {
         member: &'static str,
         version: String,
     },
+    #[error("the Minecraft runtime is not initialised")]
+    NoRuntime,
+    #[error("{member} returned null")]
+    Null { member: &'static str },
+    #[error("{member}: an element is not a {expected}")]
+    WrongClass {
+        member: &'static str,
+        expected: &'static str,
+    },
+    #[error("{class}: not one of the known enum constants")]
+    UnknownConstant { class: &'static str },
     #[error("{class}.{name} threw a Java exception")]
     Exception {
         class: &'static str,

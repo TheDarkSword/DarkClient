@@ -1,5 +1,3 @@
-# The game client: Minecraft and what hangs off it.
-
 [[class]]
 name = "net/minecraft/client/Minecraft"
   [[class.method]]
@@ -10,6 +8,7 @@ name = "net/minecraft/client/Minecraft"
   name = "getWindow"
   [[class.method]]
   name = "getConnection"
+  nullable = true
   [[class.method]]
   name = "windowSurface"
   since = "26.2"
@@ -23,14 +22,18 @@ name = "net/minecraft/client/Minecraft"
   name = "gui"
   [[class.field]]
   name = "player"
+  nullable = true
   [[class.field]]
   name = "level"
+  nullable = true
   [[class.field]]
   name = "gameMode"
+  nullable = true
   # Moved to `Gui.screen()` in 26.2.
   [[class.field]]
   name = "screen"
   until = "26.2"
+  nullable = true
 
 [[class]]
 name = "net/minecraft/client/gui/Gui"
@@ -38,6 +41,7 @@ name = "net/minecraft/client/gui/Gui"
   name = "minecraft"
   [[class.method]]
   name = "screen"
+  nullable = true
 
 [[class]]
 name = "net/minecraft/client/KeyboardHandler"
@@ -50,6 +54,7 @@ name = "net/minecraft/client/KeyboardHandler"
 name = "net/minecraft/client/DeltaTracker"
   [[class.method]]
   name = "getGameTimeDeltaPartialTick"
+  params = ["ignore_frozen_game"]
 
 [[class]]
 name = "com/mojang/blaze3d/platform/Window"
@@ -144,6 +149,7 @@ name = "net/minecraft/client/multiplayer/MultiPlayerGameMode"
   name = "attack"
   [[class.method]]
   name = "handleContainerInput"
+  params = ["container_id", "slot", "button", "input", "player"]
   [[class.method]]
   name = "startDestroyBlock"
   [[class.method]]
@@ -157,8 +163,14 @@ name = "net/minecraft/client/multiplayer/MultiPlayerGameMode"
 name = "net/minecraft/client/multiplayer/ClientLevel"
   [[class.method]]
   name = "entitiesForRendering"
+  element = "net/minecraft/world/entity/Entity"
   [[class.method]]
   name = "getBlockState"
+  [[class.method]]
+  name = "getChunk"
+  descriptor = "(II)Lnet/minecraft/world/level/chunk/LevelChunk;"
+  params = ["chunk_x", "chunk_z"]
+  nullable = true
 
 [[class]]
 name = "net/minecraft/client/multiplayer/ClientPacketListener"

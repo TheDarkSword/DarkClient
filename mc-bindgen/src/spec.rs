@@ -11,6 +11,10 @@
 //!
 //!   [[class.field]]
 //!   name = "gameRenderState"
+//!
+//! [[class]]
+//! name = "net/minecraft/world/phys/Vec3"
+//! value = ["x", "y", "z"]          # a Rust struct, read from these members
 //! ```
 
 use std::path::Path;
@@ -39,6 +43,8 @@ pub struct ClassSpec {
     pub external: bool,
     /// First version the class exists in.
     pub since: Option<String>,
+    /// Components of an immutable class, in its constructor's order.
+    pub value: Option<Vec<String>>,
     #[serde(default, rename = "method")]
     pub methods: Vec<MemberSpec>,
     #[serde(default, rename = "field")]
@@ -68,6 +74,11 @@ pub struct MemberSpec {
     /// External classes only: the member is static.
     #[serde(default, rename = "static")]
     pub is_static: bool,
+    #[serde(default)]
+    pub nullable: bool,
+    /// Class of the elements, for an `Iterable` or `Map` result.
+    pub element: Option<String>,
+    pub params: Option<Vec<String>>,
 }
 
 /// Reads every `*.toml` under `dir`, in file-name order.

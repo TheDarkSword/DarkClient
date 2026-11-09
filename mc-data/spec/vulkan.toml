@@ -1,5 +1,3 @@
-# The Vulkan backend (26.2+), down to the LWJGL handles the overlay needs.
-
 [[class]]
 name = "com/mojang/renderpearl/frontend/FrontendGpuSurface"
 since = "26.2"
@@ -48,6 +46,9 @@ external = true
   [[class.method]]
   name = "getPhysicalDevice"
   descriptor = "()Lorg/lwjgl/vulkan/VkPhysicalDevice;"
+  [[class.method]]
+  name = "address"
+  descriptor = "()J"
 
 [[class]]
 name = "org/lwjgl/vulkan/VkPhysicalDevice"
@@ -55,10 +56,12 @@ external = true
   [[class.method]]
   name = "getInstance"
   descriptor = "()Lorg/lwjgl/vulkan/VkInstance;"
+  [[class.method]]
+  name = "address"
+  descriptor = "()J"
 
 [[class]]
-name = "org/lwjgl/system/Pointer$Default"
-rust = "LwjglPointer"
+name = "org/lwjgl/vulkan/VkInstance"
 external = true
   [[class.method]]
   name = "address"
@@ -86,3 +89,4 @@ external = true
   [[class.method]]
   name = "getFunctionAddress"
   descriptor = "(Ljava/lang/CharSequence;)J"
+  params = ["name"]

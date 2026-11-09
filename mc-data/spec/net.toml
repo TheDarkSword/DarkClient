@@ -1,15 +1,20 @@
-# The connection and the packets the client reads or rewrites.
-
 [[class]]
 name = "net/minecraft/network/Connection"
   [[class.field]]
   name = "channel"
 
 [[class]]
+name = "net/minecraft/network/protocol/Packet"
+  [[class.method]]
+  name = "handle"
+  params = ["listener"]
+
+[[class]]
 name = "net/minecraft/network/protocol/game/ClientGamePacketListener"
 
 [[class]]
 name = "net/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket"
+value = ["id", "movement"]
   [[class.constructor]]
   descriptor = "(ILnet/minecraft/world/phys/Vec3;)V"
   [[class.method]]
@@ -19,22 +24,24 @@ name = "net/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket"
 
 [[class]]
 name = "net/minecraft/network/protocol/game/ClientboundPlayerInfoUpdatePacket"
-  [[class.method]]
-  name = "handle"
-  descriptor = "(Lnet/minecraft/network/protocol/game/ClientGamePacketListener;)V"
 
 [[class]]
 name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket"
   [[class.method]]
   name = "getX"
+  params = ["fallback"]
   [[class.method]]
   name = "getY"
+  params = ["fallback"]
   [[class.method]]
   name = "getZ"
+  params = ["fallback"]
   [[class.method]]
   name = "getYRot"
+  params = ["fallback"]
   [[class.method]]
   name = "getXRot"
+  params = ["fallback"]
   [[class.method]]
   name = "isOnGround"
   [[class.method]]
@@ -49,21 +56,49 @@ name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Pos"
 rust = "MovePlayerPos"
   [[class.constructor]]
   descriptor = "(DDDZZ)V"
+  params = ["x", "y", "z", "on_ground", "horizontal_collision"]
 
 [[class]]
 name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$PosRot"
 rust = "MovePlayerPosRot"
   [[class.constructor]]
   descriptor = "(DDDFFZZ)V"
+  params = ["x", "y", "z", "y_rot", "x_rot", "on_ground", "horizontal_collision"]
 
 [[class]]
 name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Rot"
 rust = "MovePlayerRot"
   [[class.constructor]]
   descriptor = "(FFZZ)V"
+  params = ["y_rot", "x_rot", "on_ground", "horizontal_collision"]
 
 [[class]]
 name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$StatusOnly"
 rust = "MovePlayerStatusOnly"
   [[class.constructor]]
   descriptor = "(ZZ)V"
+  params = ["on_ground", "horizontal_collision"]
+
+[[class]]
+name = "io/netty/channel/Channel"
+external = true
+  [[class.method]]
+  name = "pipeline"
+  descriptor = "()Lio/netty/channel/ChannelPipeline;"
+
+[[class]]
+name = "io/netty/channel/ChannelPipeline"
+external = true
+  [[class.method]]
+  name = "get"
+  descriptor = "(Ljava/lang/String;)Lio/netty/channel/ChannelHandler;"
+  params = ["name"]
+  nullable = true
+  [[class.method]]
+  name = "remove"
+  descriptor = "(Ljava/lang/String;)Lio/netty/channel/ChannelHandler;"
+  params = ["name"]
+  [[class.method]]
+  name = "addBefore"
+  descriptor = "(Ljava/lang/String;Ljava/lang/String;Lio/netty/channel/ChannelHandler;)Lio/netty/channel/ChannelPipeline;"
+  params = ["base_name", "name", "handler"]

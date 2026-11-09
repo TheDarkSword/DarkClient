@@ -31,6 +31,7 @@ pub enum Binding {
         name: String,
         descriptor: String,
         is_static: bool,
+        is_final: bool,
     },
     /// A hand-written function in `mc-bindings/src/shims.rs`.
     Shim(String),
@@ -48,8 +49,41 @@ pub struct ApiMember {
     pub rust: String,
     pub is_static: bool,
     pub setter: bool,
+    pub nullable: bool,
+    /// Element class of a collection result, as the newest version names it.
+    pub element: Option<String>,
+    pub params: Option<Vec<String>>,
     /// One per version, in version order.
     pub bindings: Vec<Binding>,
+}
+
+impl ApiMember {
+    /// Final on every version that reaches it directly, and never shimmed.
+    pub fn is_final(&self) -> bool {
+        let mut direct = false;
+        for binding in &self.bindings {
+            match binding {
+                Binding::Direct { is_final, .. } => {
+                    if !is_final {
+                        return false;
+                    }
+                    direct = true;
+                }
+                Binding::Shim(_) => return false,
+                Binding::Unavailable => {}
+            }
+        }
+        direct && self.kind == Kind::Field
+    }
+}
+
+#[derive(Debug)]
+pub enum ClassKind {
+    Handle,
+    /// Constants in the newest version's declaration order.
+    Enum(Vec<ApiMember>),
+    /// Indices into `members` of the components.
+    Value(Vec<usize>),
 }
 
 #[derive(Debug)]
@@ -60,6 +94,10 @@ pub struct ApiClass {
     /// One per version: the class's JNI name there, `None` when absent.
     pub names: Vec<Option<String>>,
     pub members: Vec<ApiMember>,
+    pub kind: ClassKind,
+    /// Nearest spec superclass, the one the Rust type derefs to.
+    pub parent: Option<String>,
+    pub external: bool,
 }
 
 /// Everything the code generator needs.
@@ -285,6 +323,8 @@ fn hierarchy<'d>(dump: &'d Dump, class: &str, kind: Kind) -> Vec<(&'d str, &'d M
 }
 
 const STATIC: u16 = 0x0008;
+const FINAL: u16 = 0x0010;
+const ENUM: u16 = 0x4000;
 
 #[allow(clippy::too_many_arguments)]
 fn resolve_member(
@@ -389,6 +429,7 @@ fn resolve_member(
                 name: java.clone(),
                 descriptor: descriptor.clone(),
                 is_static: spec.is_static,
+                is_final: false,
             });
             continue;
         }
@@ -404,6 +445,7 @@ fn resolve_member(
                 name: name.clone(),
                 descriptor: wanted.clone(),
                 is_static: member.flags & STATIC != 0,
+                is_final: member.flags & FINAL != 0,
             });
             continue;
         }
@@ -461,6 +503,11 @@ fn resolve_member(
         ctx.errors
             .push(format!("{label}: `set` only applies to fields"));
     }
+    if (spec.nullable || spec.element.is_some()) && kind == Kind::Constructor {
+        ctx.errors.push(format!(
+            "{label}: a constructor is never null nor a collection"
+        ));
+    }
     let rust = spec.rust.clone().unwrap_or_else(|| match kind {
         Kind::Constructor => "new".to_string(),
         _ => snake_case(&java),
@@ -472,8 +519,95 @@ fn resolve_member(
         rust,
         is_static,
         setter: spec.set,
+        nullable: spec.nullable,
+        element: spec.element.clone(),
+        params: spec.params.clone(),
         bindings,
     })
+}
+
+fn supertypes<'d>(dump: &'d Dump, class: &'d str) -> HashSet<&'d str> {
+    let mut seen = HashSet::new();
+    let mut queue = VecDeque::from([class]);
+    while let Some(current) = queue.pop_front() {
+        if !seen.insert(current) {
+            continue;
+        }
+        if let Some(entry) = dump.classes.get(current) {
+            queue.extend(entry.superclass.as_deref());
+            queue.extend(entry.interfaces.iter().map(String::as_str));
+        }
+    }
+    seen
+}
+
+pub const RESERVED_FUNCTIONS: &[&str] = &[
+    "as_obj",
+    "as_object",
+    "cast",
+    "class_name",
+    "clone",
+    "deref",
+    "equals",
+    "fmt",
+    "from_object",
+    "from_object_unchecked",
+    "global",
+    "is",
+    "is_same",
+    "runtime_class_name",
+    "to_object",
+];
+
+/// The parent comes from the newest version but must hold on every version:
+/// a child handle gets passed where the parent is expected.
+fn find_parents(ctx: &mut Ctx, classes: &mut [ApiClass]) {
+    let handles: Vec<usize> = (0..classes.len())
+        .filter(|&i| matches!(classes[i].kind, ClassKind::Handle) && !classes[i].external)
+        .collect();
+    for &i in &handles {
+        let Some(v) = (0..ctx.versions.len())
+            .rev()
+            .find(|&v| classes[i].names[v].is_some())
+        else {
+            continue;
+        };
+        let dump = ctx.versions[v].dump;
+        let mut current = classes[i].names[v]
+            .as_deref()
+            .and_then(|name| dump.classes.get(name))
+            .and_then(|entry| entry.superclass.clone());
+        let mut parent = None;
+        while let Some(name) = current {
+            if let Some(&j) = handles
+                .iter()
+                .find(|&&j| classes[j].names[v].as_deref() == Some(name.as_str()))
+            {
+                parent = Some(j);
+                break;
+            }
+            current = dump
+                .classes
+                .get(&name)
+                .and_then(|entry| entry.superclass.clone());
+        }
+        let Some(j) = parent else { continue };
+        for (u, version) in ctx.versions.iter().enumerate() {
+            let (Some(child), Some(ancestor)) = (
+                classes[i].names[u].as_deref(),
+                classes[j].names[u].as_deref(),
+            ) else {
+                continue;
+            };
+            if !supertypes(version.dump, child).contains(ancestor) {
+                ctx.errors.push(format!(
+                    "{}: {child} does not extend {ancestor}, but {} derefs to {}",
+                    version.id, classes[i].rust, classes[j].rust
+                ));
+            }
+        }
+        classes[i].parent = Some(classes[j].name.clone());
+    }
 }
 
 /// Resolves the whole spec against the dumps. Collects every problem rather
@@ -549,6 +683,19 @@ pub fn resolve(
                 names.push(Some(name));
             }
 
+            let newest = (0..ctx.versions.len()).rev().find(|&v| names[v].is_some());
+            let enum_constants: Option<Vec<String>> = newest.and_then(|v| {
+                let entry = ctx.versions[v].dump.classes.get(names[v].as_deref()?)?;
+                (!class_spec.external && entry.flags & ENUM != 0).then(|| {
+                    entry
+                        .fields
+                        .iter()
+                        .filter(|field| field.flags & (ENUM | STATIC) == ENUM | STATIC)
+                        .map(|field| field.name.clone())
+                        .collect()
+                })
+            });
+
             let mut members = Vec::new();
             for (kind, list) in [
                 (Kind::Constructor, &class_spec.constructors),
@@ -564,6 +711,68 @@ pub fn resolve(
                 }
             }
 
+            let kind = if let Some(constants) = &enum_constants {
+                for field in &class_spec.fields {
+                    if field
+                        .name
+                        .as_ref()
+                        .is_some_and(|name| constants.contains(name))
+                    {
+                        ctx.errors.push(format!(
+                            "{rust}.{}: enum constants are generated as variants; remove it from the spec",
+                            field.name.as_deref().unwrap_or_default()
+                        ));
+                    }
+                }
+                if class_spec.value.is_some() {
+                    ctx.errors
+                        .push(format!("{rust}: an enum cannot be a value class"));
+                }
+                let mut resolved = Vec::new();
+                for constant in constants {
+                    let spec = MemberSpec {
+                        name: Some(constant.clone()),
+                        ..MemberSpec::default()
+                    };
+                    if let Some(member) =
+                        resolve_member(&mut ctx, class_spec, &rust, &names, Kind::Field, &spec)
+                    {
+                        resolved.push(member);
+                    }
+                }
+                ClassKind::Enum(resolved)
+            } else if let Some(components) = &class_spec.value {
+                let mut indices = Vec::new();
+                for component in components {
+                    match members.iter().position(|member: &ApiMember| {
+                        member.java == *component
+                            && !member.is_static
+                            && (member.kind == Kind::Field
+                                || (member.kind == Kind::Method
+                                    && member.descriptor.starts_with("()")))
+                    }) {
+                        Some(index) => indices.push(index),
+                        None => ctx.errors.push(format!(
+                            "{rust}: value component {component} is not a declared field or no-argument method"
+                        )),
+                    }
+                }
+                for (index, member) in members.iter().enumerate() {
+                    if !member.is_static
+                        && member.kind != Kind::Constructor
+                        && !indices.contains(&index)
+                    {
+                        ctx.errors.push(format!(
+                            "{rust}.{}: a value class only has its components, constructors and static members",
+                            member.java
+                        ));
+                    }
+                }
+                ClassKind::Value(indices)
+            } else {
+                ClassKind::Handle
+            };
+
             let mut seen = HashSet::new();
             for member in &members {
                 let mut functions = vec![member.rust.clone()];
@@ -571,7 +780,7 @@ pub fn resolve(
                     functions.push(format!("set_{}", member.rust));
                 }
                 for function in functions {
-                    if ["class", "class_name", "is_instance"].contains(&function.as_str())
+                    if RESERVED_FUNCTIONS.contains(&function.as_str())
                         || !seen.insert(function.clone())
                     {
                         ctx.errors.push(format!(
@@ -586,9 +795,14 @@ pub fn resolve(
                 name: class_spec.name.clone(),
                 names,
                 members,
+                kind,
+                parent: None,
+                external: class_spec.external,
             });
         }
     }
+
+    find_parents(&mut ctx, &mut classes);
 
     // Adapter entries that matched no spec member are typos.
     for &(d, id, file) in &ctx.deltas {
@@ -617,10 +831,15 @@ pub fn resolve(
         let signature: Vec<String> = classes
             .iter()
             .flat_map(|class| {
+                let constants: &[ApiMember] = match &class.kind {
+                    ClassKind::Enum(constants) => constants,
+                    _ => &[],
+                };
                 std::iter::once(format!("{:?}", class.names[v])).chain(
                     class
                         .members
                         .iter()
+                        .chain(constants)
                         .map(move |member| format!("{:?}", member.bindings[v])),
                 )
             })
@@ -844,5 +1063,83 @@ mod tests {
         )
         .unwrap_err();
         assert!(errors[0].contains("overloaded"));
+    }
+
+    fn member(name: &str, descriptor: &str, flags: u16) -> Member {
+        Member {
+            name: name.into(),
+            descriptor: descriptor.into(),
+            flags,
+        }
+    }
+
+    #[test]
+    fn a_java_enum_becomes_a_rust_enum_with_its_constants() {
+        let mut dumps = [dump("26.1", &[("a/Hand", None, &[])])];
+        let hand = dumps[0].classes.get_mut("a/Hand").unwrap();
+        hand.flags = ENUM;
+        hand.fields
+            .insert(member("MAIN", "La/Hand;", ENUM | STATIC | FINAL));
+        hand.fields
+            .insert(member("OFF", "La/Hand;", ENUM | STATIC | FINAL));
+        hand.fields
+            .insert(member("BY_ID", "Ljava/util/Map;", STATIC | FINAL));
+        let model = resolve(
+            &spec("[[class]]\nname = \"a/Hand\"\n"),
+            &dumps,
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let ClassKind::Enum(constants) = &model.classes[0].kind else {
+            panic!("not an enum");
+        };
+        let names: Vec<&str> = constants.iter().map(|c| c.java.as_str()).collect();
+        assert_eq!(names, ["MAIN", "OFF"]);
+    }
+
+    #[test]
+    fn a_handle_derefs_to_its_nearest_spec_superclass_on_every_version() {
+        let dumps = [
+            dump("26.1", &[("a/Local", None, &[]), ("a/Player", None, &[])]),
+            dump(
+                "26.2",
+                &[
+                    ("a/Local", Some("a/Client"), &[]),
+                    ("a/Client", Some("a/Player"), &[]),
+                    ("a/Player", None, &[]),
+                ],
+            ),
+        ];
+        let text = "[[class]]\nname = \"a/Local\"\n[[class]]\nname = \"a/Player\"\n";
+        let errors = resolve(&spec(text), &dumps, &BTreeMap::new()).unwrap_err();
+        assert!(errors[0].contains("26.1: a/Local does not extend a/Player"));
+
+        let model = resolve(&spec(text), &dumps[1..], &BTreeMap::new()).unwrap();
+        assert_eq!(model.classes[0].parent.as_deref(), Some("a/Player"));
+        assert_eq!(model.classes[1].parent, None);
+    }
+
+    #[test]
+    fn a_value_class_has_only_components_and_constructors() {
+        let mut dumps = [dump(
+            "26.1",
+            &[(
+                "a/Pos",
+                None,
+                &[("<init>", "(II)V", 1), ("up", "()La/Pos;", 1)],
+            )],
+        )];
+        let pos = dumps[0].classes.get_mut("a/Pos").unwrap();
+        pos.fields.insert(member("x", "I", FINAL));
+        pos.fields.insert(member("y", "I", FINAL));
+        let ok = "[[class]]\nname = \"a/Pos\"\nvalue = [\"x\", \"y\"]\n[[class.constructor]]\ndescriptor = \"(II)V\"\n[[class.field]]\nname = \"x\"\n[[class.field]]\nname = \"y\"\n";
+        let model = resolve(&spec(ok), &dumps, &BTreeMap::new()).unwrap();
+        assert!(
+            matches!(&model.classes[0].kind, ClassKind::Value(components) if components.len() == 2)
+        );
+
+        let extra = format!("{ok}[[class.method]]\nname = \"up\"\n");
+        let errors = resolve(&spec(&extra), &dumps, &BTreeMap::new()).unwrap_err();
+        assert!(errors[0].contains("a value class only has its components"));
     }
 }

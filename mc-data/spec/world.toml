@@ -1,15 +1,8 @@
-# Levels, blocks, positions.
-
-[[class]]
-name = "net/minecraft/world/level/LevelReader"
-  [[class.method]]
-  name = "getChunk"
-  descriptor = "(II)Lnet/minecraft/world/level/chunk/ChunkAccess;"
-
 [[class]]
 name = "net/minecraft/world/level/chunk/LevelChunk"
   [[class.method]]
   name = "getBlockEntities"
+  element = "net/minecraft/world/level/block/entity/BlockEntity"
 
 [[class]]
 name = "net/minecraft/world/level/block/state/BlockState"
@@ -30,21 +23,23 @@ name = "net/minecraft/world/level/block/entity/BarrelBlockEntity"
 name = "net/minecraft/world/level/block/entity/ShulkerBoxBlockEntity"
 
 [[class]]
-name = "net/minecraft/core/Vec3i"
-  [[class.method]]
-  name = "getX"
-  [[class.method]]
-  name = "getY"
-  [[class.method]]
-  name = "getZ"
-
-[[class]]
 name = "net/minecraft/core/BlockPos"
+value = ["getX", "getY", "getZ"]
   [[class.constructor]]
   descriptor = "(III)V"
+  [[class.method]]
+  name = "getX"
+  descriptor = "()I"
+  [[class.method]]
+  name = "getY"
+  descriptor = "()I"
+  [[class.method]]
+  name = "getZ"
+  descriptor = "()I"
 
 [[class]]
 name = "net/minecraft/world/phys/Vec3"
+value = ["x", "y", "z"]
   [[class.constructor]]
   descriptor = "(DDD)V"
   [[class.field]]
@@ -56,20 +51,9 @@ name = "net/minecraft/world/phys/Vec3"
 
 [[class]]
 name = "net/minecraft/core/Direction"
-  [[class.field]]
-  name = "DOWN"
-  [[class.field]]
-  name = "UP"
-  [[class.field]]
-  name = "NORTH"
-  [[class.field]]
-  name = "SOUTH"
-  [[class.field]]
-  name = "WEST"
-  [[class.field]]
-  name = "EAST"
 
 [[class]]
 name = "net/minecraft/world/phys/BlockHitResult"
   [[class.constructor]]
   descriptor = "(Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/core/Direction;Lnet/minecraft/core/BlockPos;Z)V"
+  params = ["location", "direction", "block_pos", "inside"]
