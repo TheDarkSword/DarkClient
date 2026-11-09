@@ -212,7 +212,9 @@ fn handle_key(key: Option<i32>, action: KeyAction, modifiers: egui::Modifiers) -
     // (DragValue editing, TextEdit, the color picker's hex / numeric fields)
     // see Backspace, arrows, Enter, digits, etc.
     if gui_was_open {
-        if let Some(egui_key) = key.and_then(translate_glfw_key) {
+        if let Some(event) = clipboard_event(key, action, modifiers) {
+            push_event(event);
+        } else if let Some(egui_key) = key.and_then(translate_glfw_key) {
             push_event(egui::Event::Key {
                 key: egui_key,
                 physical_key: None,
@@ -234,6 +236,30 @@ fn handle_key(key: Option<i32>, action: KeyAction, modifiers: egui::Modifiers) -
         handle_module_keybind(key);
     }
     false
+}
+
+const GLFW_KEY_C: i32 = 67;
+const GLFW_KEY_V: i32 = 86;
+const GLFW_KEY_X: i32 = 88;
+
+/// Ctrl+C / Ctrl+X / Ctrl+V as the clipboard events egui text fields expect.
+/// The paste comes out empty: reading the clipboard from inside an input
+/// callback could re-enter the windowing library's event loop, so
+/// `gather_egui_inputs` fills it in on the render thread.
+fn clipboard_event(
+    key: Option<i32>,
+    action: KeyAction,
+    modifiers: egui::Modifiers,
+) -> Option<egui::Event> {
+    if action == KeyAction::Release || !modifiers.command {
+        return None;
+    }
+    match key? {
+        GLFW_KEY_C => Some(egui::Event::Copy),
+        GLFW_KEY_X => Some(egui::Event::Cut),
+        GLFW_KEY_V => Some(egui::Event::Paste(String::new())),
+        _ => None,
+    }
 }
 
 /// Handles typed text — already mapped through the keyboard layout, so this,

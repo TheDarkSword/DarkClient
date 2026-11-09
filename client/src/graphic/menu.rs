@@ -15,7 +15,7 @@ use egui::{
     Pos2, Rect, RichText, Rounding, Sense, Shape, Stroke, Ui, Vec2,
 };
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Width of a category panel.
@@ -32,6 +32,28 @@ const ROW_STRIDE: f32 = 320.0;
 const ORIGIN_X: f32 = 40.0;
 const ORIGIN_Y: f32 = 58.0;
 
+/// Whether a color picker popup was open last frame — a pasted color then
+/// goes to it whole, instead of into a single R / G / B field.
+static COLOR_PICKER_OPEN: AtomicBool = AtomicBool::new(false);
+/// A pasted color waiting for the open picker to take it.
+static PASTED_COLOR: Mutex<Option<[u8; 4]>> = Mutex::new(None);
+
+/// Offers text being pasted into the overlay. When a color picker is open and
+/// `text` is a whole color, the picker takes it and this returns `true`: the
+/// paste must not also reach the focused field.
+pub fn offer_color_paste(text: &str) -> bool {
+    if !COLOR_PICKER_OPEN.load(Ordering::Relaxed) {
+        return false;
+    }
+    let Some(color) = crate::graphic::color_text::parse_color(text) else {
+        return false;
+    };
+    if let Ok(mut pasted) = PASTED_COLOR.lock() {
+        *pasted = Some(color);
+    }
+    true
+}
+
 /// A shared handle to one module.
 type ModuleArc = Arc<Mutex<ModuleType>>;
 /// The whole module registry, as borrowed from the read guard.
@@ -39,6 +61,7 @@ type ModuleMap = HashMap<ModuleId, ModuleArc>;
 
 /// Draws the entire ClickGUI. `progress` is the 0..1 open animation factor.
 pub fn draw(ctx: &Context, progress: f32) {
+    COLOR_PICKER_OPEN.store(false, Ordering::Relaxed);
     draw_backdrop(ctx, progress);
 
     let registry = crate::state::client().modules.by_id();
@@ -463,6 +486,17 @@ fn draw_settings(ui: &mut Ui, data: &mut ModuleData, arc: &ModuleArc, registry: 
                                 // in — and read back unmultiplied, so the swatch
                                 // matches what is drawn and alpha never darkens
                                 // the color.
+                                // The id egui's color button gives its popup.
+                                let popup = ui.auto_id_with("popup");
+                                if ui.memory(|memory| memory.is_popup_open(popup)) {
+                                    COLOR_PICKER_OPEN.store(true, Ordering::Relaxed);
+                                    let pasted =
+                                        PASTED_COLOR.lock().ok().and_then(|mut p| p.take());
+                                    if let Some([r, g, b, a]) = pasted {
+                                        let a = if *alpha { a } else { 255 };
+                                        *value = [r, g, b, a].map(|c| c as f32 / 255.0);
+                                    }
+                                }
                                 let [r, g, b, a] = value.map(|c| (c * 255.0).round() as u8);
                                 let mut color = Color32::from_rgba_unmultiplied(r, g, b, a);
                                 let mode = if *alpha {

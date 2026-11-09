@@ -91,10 +91,11 @@ pub fn gather_egui_inputs(
         return raw_input;
     }
 
-    // Drain keyboard / text events pushed by the GLFW char + key callbacks.
+    // Drain keyboard / text events pushed by the input backend.
     if let Ok(mut queue) = PENDING_EVENTS.lock() {
         raw_input.events.append(&mut queue);
     }
+    fill_pastes(&mut raw_input.events);
 
     let mut mouse = MOUSE_STATE.lock().unwrap();
     let current_pos = egui::pos2(
@@ -144,6 +145,25 @@ pub fn gather_egui_inputs(
     raw_input
 }
 
+/// Fills the empty `Paste` placeholders the input backend queued for Ctrl+V
+/// with the clipboard text, read here on the render thread.
+/// A whole color pasted while a color picker is open goes to that picker
+/// instead of into one of its fields.
+fn fill_pastes(events: &mut Vec<egui::Event>) {
+    let mut clipboard: Option<String> = None;
+    events.retain_mut(|event| {
+        let egui::Event::Paste(text) = event else {
+            return true;
+        };
+        if text.is_empty() {
+            *text = clipboard
+                .get_or_insert_with(|| crate::state::minecraft().clipboard().unwrap_or_default())
+                .clone();
+        }
+        !text.is_empty() && !crate::graphic::menu::offer_color_paste(text)
+    });
+}
+
 /// Runs one egui frame for a framebuffer of the given size, in pixels.
 pub fn run_frame(screen_width: f32, screen_height: f32) -> EguiFrame {
     let scale_factor = (screen_height / 720.0).max(1.0).floor();
@@ -156,6 +176,15 @@ pub fn run_frame(screen_width: f32, screen_height: f32) -> EguiFrame {
     let full_output = ctx.run(raw_input, |ctx| {
         crate::graphic::gui::render_all(ctx);
     });
+
+    // egui only records what a widget copied (the color picker's copy
+    // button, Ctrl+C in a text field); putting it on the clipboard is ours.
+    let copied = &full_output.platform_output.copied_text;
+    if !copied.is_empty() {
+        if let Err(e) = crate::state::minecraft().set_clipboard(copied) {
+            log::warn!("Could not set the clipboard: {e}");
+        }
+    }
 
     EguiFrame {
         primitives: ctx.tessellate(full_output.shapes, full_output.pixels_per_point),

@@ -9,7 +9,7 @@ use crate::mapping::entity::player::LocalPlayer;
 use crate::mapping::minecraft_version::MinecraftVersion;
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
-use jni::objects::GlobalRef;
+use jni::objects::{GlobalRef, JObject, JValue};
 use std::sync::RwLock;
 
 /// The running Minecraft client.
@@ -120,6 +120,47 @@ impl Minecraft {
             let obj = self.call_method("getDeltaTracker", &[])?.l()?;
             Ok(DeltaTracker::new(mapping().new_global_ref(obj)?))
         })
+    }
+
+    /// Puts `text` on the system clipboard — through Minecraft, so it works
+    /// whatever windowing library the game runs on.
+    pub fn set_clipboard(&self, text: &str) -> anyhow::Result<()> {
+        self.in_frame(|| {
+            let handler = self.keyboard_handler()?;
+            let text = mapping().get_env()?.new_string(text)?;
+            mapping().call_method(
+                MinecraftClassType::KeyboardHandler,
+                &handler,
+                "setClipboard",
+                &[JValue::Object(&text)],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The text on the system clipboard.
+    pub fn clipboard(&self) -> anyhow::Result<String> {
+        self.in_frame(|| {
+            let handler = self.keyboard_handler()?;
+            let text = mapping()
+                .call_method(
+                    MinecraftClassType::KeyboardHandler,
+                    &handler,
+                    "getClipboard",
+                    &[],
+                )?
+                .l()?;
+            mapping().get_string(text)
+        })
+    }
+
+    fn keyboard_handler(&self) -> anyhow::Result<JObject<'static>> {
+        Ok(self
+            .get_field(
+                "keyboardHandler",
+                FieldType::Object(MinecraftClassType::KeyboardHandler),
+            )?
+            .l()?)
     }
 
     /// The game options. Present from the main menu onward.

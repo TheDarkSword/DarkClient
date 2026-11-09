@@ -1,4 +1,5 @@
 pub mod anim;
+pub mod color_text;
 pub mod esp;
 pub mod gl_state;
 pub mod gui;

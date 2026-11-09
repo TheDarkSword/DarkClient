@@ -17,6 +17,7 @@ pub enum MinecraftClassType {
     Mob,
     Screen,
     Gui,
+    KeyboardHandler,
     GameRenderer,
     Camera,
     DeltaTracker,
@@ -90,6 +91,7 @@ impl MinecraftClassType {
             MinecraftClassType::Mob => "net/minecraft/world/entity/Mob",
             MinecraftClassType::Screen => "net/minecraft/client/gui/screens/Screen",
             MinecraftClassType::Gui => "net/minecraft/client/gui/Gui",
+            MinecraftClassType::KeyboardHandler => "net/minecraft/client/KeyboardHandler",
             MinecraftClassType::GameRenderer => "net/minecraft/client/renderer/GameRenderer",
             MinecraftClassType::DeltaTracker => "net/minecraft/client/DeltaTracker",
             MinecraftClassType::GameRenderState => {
