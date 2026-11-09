@@ -1,0 +1,34 @@
+# Minecraft 26.3, relative to 26.2.
+
+# The render backend moved from com/mojang/blaze3d to com/mojang/renderpearl;
+# `GpuSurface` became an interface implemented by `FrontendGpuSurface`.
+[[class]]
+name = "com/mojang/renderpearl/api/device/GpuSurface"
+before = "com/mojang/blaze3d/systems/GpuSurface"
+[[class]]
+name = "com/mojang/renderpearl/frontend/FrontendGpuSurface"
+before = "com/mojang/blaze3d/systems/GpuSurface"
+[[class]]
+name = "com/mojang/renderpearl/backend/api/GpuSurfaceBackend"
+before = "com/mojang/blaze3d/systems/GpuSurfaceBackend"
+[[class]]
+name = "com/mojang/renderpearl/backend/api/GpuDeviceBackend"
+before = "com/mojang/blaze3d/systems/GpuDeviceBackend"
+[[class]]
+name = "com/mojang/renderpearl/backend/vulkan/VulkanGpuSurface"
+before = "com/mojang/blaze3d/vulkan/VulkanGpuSurface"
+[[class]]
+name = "com/mojang/renderpearl/backend/vulkan/VulkanDevice"
+before = "com/mojang/blaze3d/vulkan/VulkanDevice"
+[[class]]
+name = "com/mojang/renderpearl/backend/vulkan/VulkanQueue"
+before = "com/mojang/blaze3d/vulkan/VulkanQueue"
+
+[[rename]]
+member = "Entity.setPermanentlyInvulnerable"
+before = "setInvulnerable"
+
+# Swinging takes the held item's attack animation.
+[[shim]]
+member = "LivingEntity.swing(Lnet/minecraft/world/InteractionHand;)V"
+since = "swing_with_attack_animation"

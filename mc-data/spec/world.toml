@@ -1,0 +1,75 @@
+# Levels, blocks, positions.
+
+[[class]]
+name = "net/minecraft/world/level/LevelReader"
+  [[class.method]]
+  name = "getChunk"
+  descriptor = "(II)Lnet/minecraft/world/level/chunk/ChunkAccess;"
+
+[[class]]
+name = "net/minecraft/world/level/chunk/LevelChunk"
+  [[class.method]]
+  name = "getBlockEntities"
+
+[[class]]
+name = "net/minecraft/world/level/block/state/BlockState"
+  [[class.method]]
+  name = "isAir"
+
+[[class]]
+name = "net/minecraft/world/level/block/entity/BlockEntity"
+  [[class.method]]
+  name = "getBlockPos"
+[[class]]
+name = "net/minecraft/world/level/block/entity/ChestBlockEntity"
+[[class]]
+name = "net/minecraft/world/level/block/entity/EnderChestBlockEntity"
+[[class]]
+name = "net/minecraft/world/level/block/entity/BarrelBlockEntity"
+[[class]]
+name = "net/minecraft/world/level/block/entity/ShulkerBoxBlockEntity"
+
+[[class]]
+name = "net/minecraft/core/Vec3i"
+  [[class.method]]
+  name = "getX"
+  [[class.method]]
+  name = "getY"
+  [[class.method]]
+  name = "getZ"
+
+[[class]]
+name = "net/minecraft/core/BlockPos"
+  [[class.constructor]]
+  descriptor = "(III)V"
+
+[[class]]
+name = "net/minecraft/world/phys/Vec3"
+  [[class.constructor]]
+  descriptor = "(DDD)V"
+  [[class.field]]
+  name = "x"
+  [[class.field]]
+  name = "y"
+  [[class.field]]
+  name = "z"
+
+[[class]]
+name = "net/minecraft/core/Direction"
+  [[class.field]]
+  name = "DOWN"
+  [[class.field]]
+  name = "UP"
+  [[class.field]]
+  name = "NORTH"
+  [[class.field]]
+  name = "SOUTH"
+  [[class.field]]
+  name = "WEST"
+  [[class.field]]
+  name = "EAST"
+
+[[class]]
+name = "net/minecraft/world/phys/BlockHitResult"
+  [[class.constructor]]
+  descriptor = "(Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/core/Direction;Lnet/minecraft/core/BlockPos;Z)V"

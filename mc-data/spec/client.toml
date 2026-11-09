@@ -1,0 +1,198 @@
+# The game client: Minecraft and what hangs off it.
+
+[[class]]
+name = "net/minecraft/client/Minecraft"
+  [[class.method]]
+  name = "getInstance"
+  [[class.method]]
+  name = "getDeltaTracker"
+  [[class.method]]
+  name = "getWindow"
+  [[class.method]]
+  name = "getConnection"
+  [[class.method]]
+  name = "windowSurface"
+  since = "26.2"
+  [[class.field]]
+  name = "gameRenderer"
+  [[class.field]]
+  name = "keyboardHandler"
+  [[class.field]]
+  name = "options"
+  [[class.field]]
+  name = "gui"
+  [[class.field]]
+  name = "player"
+  [[class.field]]
+  name = "level"
+  [[class.field]]
+  name = "gameMode"
+  # Moved to `Gui.screen()` in 26.2.
+  [[class.field]]
+  name = "screen"
+  until = "26.2"
+
+[[class]]
+name = "net/minecraft/client/gui/Gui"
+  [[class.field]]
+  name = "minecraft"
+  [[class.method]]
+  name = "screen"
+
+[[class]]
+name = "net/minecraft/client/KeyboardHandler"
+  [[class.method]]
+  name = "getClipboard"
+  [[class.method]]
+  name = "setClipboard"
+
+[[class]]
+name = "net/minecraft/client/DeltaTracker"
+  [[class.method]]
+  name = "getGameTimeDeltaPartialTick"
+
+[[class]]
+name = "com/mojang/blaze3d/platform/Window"
+  [[class.field]]
+  name = "handle"
+
+[[class]]
+name = "net/minecraft/client/Options"
+  [[class.field]]
+  name = "fov"
+  [[class.field]]
+  name = "fovEffectScale"
+  [[class.field]]
+  name = "gamma"
+  [[class.field]]
+  name = "sensitivity"
+
+[[class]]
+name = "net/minecraft/client/OptionInstance"
+  [[class.method]]
+  name = "get"
+  [[class.field]]
+  name = "value"
+  set = true
+
+[[class]]
+name = "net/minecraft/client/Camera"
+  [[class.field]]
+  name = "position"
+  [[class.field]]
+  name = "yRot"
+  [[class.field]]
+  name = "xRot"
+  [[class.field]]
+  name = "fov"
+
+[[class]]
+name = "net/minecraft/client/renderer/GameRenderer"
+  [[class.method]]
+  name = "mainCamera"
+  [[class.field]]
+  name = "gameRenderState"
+
+[[class]]
+name = "net/minecraft/client/renderer/state/GameRenderState"
+  [[class.field]]
+  name = "optionsRenderState"
+  [[class.field]]
+  name = "levelRenderState"
+
+[[class]]
+name = "net/minecraft/client/renderer/state/OptionsRenderState"
+  [[class.field]]
+  name = "bobView"
+  [[class.field]]
+  name = "damageTiltStrength"
+
+[[class]]
+name = "net/minecraft/client/renderer/state/level/LevelRenderState"
+  [[class.field]]
+  name = "cameraRenderState"
+
+[[class]]
+name = "net/minecraft/client/renderer/state/level/CameraRenderState"
+  [[class.field]]
+  name = "entityRenderState"
+
+[[class]]
+name = "net/minecraft/client/renderer/state/level/CameraEntityRenderState"
+  [[class.field]]
+  name = "bob"
+  [[class.field]]
+  name = "backwardsInterpolatedWalkDistance"
+  [[class.field]]
+  name = "isPlayer"
+  [[class.field]]
+  name = "isLiving"
+  [[class.field]]
+  name = "isDeadOrDying"
+  [[class.field]]
+  name = "deathTime"
+  [[class.field]]
+  name = "hurtTime"
+  [[class.field]]
+  name = "hurtDuration"
+  [[class.field]]
+  name = "hurtDir"
+
+[[class]]
+name = "net/minecraft/client/multiplayer/MultiPlayerGameMode"
+  [[class.method]]
+  name = "attack"
+  [[class.method]]
+  name = "handleContainerInput"
+  [[class.method]]
+  name = "startDestroyBlock"
+  [[class.method]]
+  name = "continueDestroyBlock"
+  [[class.method]]
+  name = "stopDestroyBlock"
+  [[class.method]]
+  name = "useItemOn"
+
+[[class]]
+name = "net/minecraft/client/multiplayer/ClientLevel"
+  [[class.method]]
+  name = "entitiesForRendering"
+  [[class.method]]
+  name = "getBlockState"
+
+[[class]]
+name = "net/minecraft/client/multiplayer/ClientPacketListener"
+  [[class.method]]
+  name = "getConnection"
+
+[[class]]
+name = "net/minecraft/client/multiplayer/PlayerInfo"
+  [[class.field]]
+  name = "gameMode"
+  set = true
+
+# Screens: instance checks only.
+[[class]]
+name = "net/minecraft/client/gui/screens/Screen"
+[[class]]
+name = "net/minecraft/client/gui/screens/ChatScreen"
+[[class]]
+name = "net/minecraft/client/gui/screens/PauseScreen"
+[[class]]
+name = "net/minecraft/client/gui/screens/inventory/AbstractContainerScreen"
+[[class]]
+name = "net/minecraft/client/gui/screens/inventory/CraftingScreen"
+[[class]]
+name = "net/minecraft/client/gui/screens/inventory/CreativeModeInventoryScreen"
+[[class]]
+name = "net/minecraft/client/gui/screens/inventory/InventoryScreen"
+
+[[class]]
+name = "net/minecraft/SharedConstants"
+  [[class.method]]
+  name = "getCurrentVersion"
+
+[[class]]
+name = "net/minecraft/WorldVersion"
+  [[class.method]]
+  name = "id"

@@ -1,0 +1,88 @@
+# The Vulkan backend (26.2+), down to the LWJGL handles the overlay needs.
+
+[[class]]
+name = "com/mojang/renderpearl/frontend/FrontendGpuSurface"
+since = "26.2"
+  [[class.field]]
+  name = "backend"
+
+[[class]]
+name = "com/mojang/renderpearl/backend/vulkan/VulkanGpuSurface"
+since = "26.2"
+  [[class.field]]
+  name = "presentQueue"
+  [[class.field]]
+  name = "device"
+  [[class.field]]
+  name = "swapchainImageFormat"
+  [[class.field]]
+  name = "swapchainWidth"
+  [[class.field]]
+  name = "swapchainHeight"
+
+[[class]]
+name = "com/mojang/renderpearl/backend/vulkan/VulkanDevice"
+since = "26.2"
+  [[class.method]]
+  name = "graphicsQueue"
+
+[[class]]
+name = "com/mojang/renderpearl/backend/vulkan/VulkanQueue"
+since = "26.2"
+  [[class.method]]
+  name = "queueFamilyIndex"
+
+[[class]]
+name = "org/lwjgl/vulkan/VkQueue"
+external = true
+  [[class.method]]
+  name = "getCapabilities"
+  descriptor = "()Lorg/lwjgl/vulkan/VKCapabilitiesDevice;"
+  [[class.method]]
+  name = "getDevice"
+  descriptor = "()Lorg/lwjgl/vulkan/VkDevice;"
+
+[[class]]
+name = "org/lwjgl/vulkan/VkDevice"
+external = true
+  [[class.method]]
+  name = "getPhysicalDevice"
+  descriptor = "()Lorg/lwjgl/vulkan/VkPhysicalDevice;"
+
+[[class]]
+name = "org/lwjgl/vulkan/VkPhysicalDevice"
+external = true
+  [[class.method]]
+  name = "getInstance"
+  descriptor = "()Lorg/lwjgl/vulkan/VkInstance;"
+
+[[class]]
+name = "org/lwjgl/system/Pointer$Default"
+rust = "LwjglPointer"
+external = true
+  [[class.method]]
+  name = "address"
+  descriptor = "()J"
+
+[[class]]
+name = "org/lwjgl/vulkan/VKCapabilitiesDevice"
+external = true
+  [[class.field]]
+  name = "vkQueuePresentKHR"
+  descriptor = "J"
+  set = true
+
+[[class]]
+name = "org/lwjgl/vulkan/VK"
+external = true
+  [[class.method]]
+  name = "getFunctionProvider"
+  descriptor = "()Lorg/lwjgl/system/FunctionProvider;"
+  static = true
+
+[[class]]
+name = "org/lwjgl/system/FunctionProvider"
+external = true
+  [[class.method]]
+  name = "getFunctionAddress"
+  descriptor = "(Ljava/lang/CharSequence;)J"

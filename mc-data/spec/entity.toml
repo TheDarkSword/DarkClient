@@ -1,0 +1,152 @@
+# Entities and the player.
+
+[[class]]
+name = "net/minecraft/world/entity/Entity"
+  [[class.method]]
+  name = "getId"
+  [[class.method]]
+  name = "position"
+  [[class.method]]
+  name = "getEyePosition"
+  descriptor = "()Lnet/minecraft/world/phys/Vec3;"
+  [[class.method]]
+  name = "getYRot"
+  descriptor = "()F"
+  [[class.method]]
+  name = "getXRot"
+  descriptor = "()F"
+  [[class.method]]
+  name = "setYRot"
+  [[class.method]]
+  name = "setXRot"
+  [[class.method]]
+  name = "distanceToSqr"
+  descriptor = "(DDD)D"
+  [[class.method]]
+  name = "getBbWidth"
+  [[class.method]]
+  name = "getBbHeight"
+  [[class.method]]
+  name = "isSprinting"
+  [[class.method]]
+  name = "setSprinting"
+  [[class.method]]
+  name = "onGround"
+  [[class.method]]
+  name = "getDeltaMovement"
+  [[class.method]]
+  name = "setDeltaMovement"
+  descriptor = "(DDD)V"
+  [[class.method]]
+  name = "setPos"
+  descriptor = "(DDD)V"
+  [[class.method]]
+  name = "isShiftKeyDown"
+  [[class.method]]
+  name = "setPermanentlyInvulnerable"
+  [[class.method]]
+  name = "resetFallDistance"
+  [[class.method]]
+  name = "getName"
+  [[class.field]]
+  name = "xOld"
+  [[class.field]]
+  name = "yOld"
+  [[class.field]]
+  name = "zOld"
+  [[class.field]]
+  name = "yRotO"
+  set = true
+  [[class.field]]
+  name = "xRotO"
+  set = true
+  [[class.field]]
+  name = "noPhysics"
+  set = true
+  [[class.field]]
+  name = "fallDistance"
+  [[class.field]]
+  name = "tickCount"
+
+[[class]]
+name = "net/minecraft/world/entity/LivingEntity"
+  [[class.method]]
+  name = "getHealth"
+  [[class.method]]
+  name = "getMaxHealth"
+  [[class.method]]
+  name = "isDeadOrDying"
+  [[class.method]]
+  name = "isUsingItem"
+  [[class.method]]
+  name = "getSpeed"
+  [[class.method]]
+  name = "getItemInHand"
+  [[class.method]]
+  name = "getEquipmentSlotForItem"
+  # Main-hand swing as an attack; 26.3 needs the held item's animation.
+  [[class.method]]
+  name = "swing"
+  descriptor = "(Lnet/minecraft/world/InteractionHand;)V"
+  [[class.method]]
+  name = "swing"
+  descriptor = "(Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/item/component/SwingAnimation;Z)Z"
+  rust = "swing_with_animation"
+  since = "26.3"
+  [[class.field]]
+  name = "xxa"
+  [[class.field]]
+  name = "zza"
+  [[class.field]]
+  name = "jumping"
+
+[[class]]
+name = "net/minecraft/world/entity/Mob"
+
+[[class]]
+name = "net/minecraft/world/entity/player/Player"
+  [[class.method]]
+  name = "getInventory"
+  [[class.method]]
+  name = "getAbilities"
+  [[class.method]]
+  name = "getAttackStrengthScale"
+  [[class.field]]
+  name = "containerMenu"
+
+[[class]]
+name = "net/minecraft/client/player/LocalPlayer"
+  [[class.field]]
+  name = "connection"
+
+[[class]]
+name = "net/minecraft/world/entity/player/Abilities"
+  [[class.field]]
+  name = "flying"
+  set = true
+  [[class.field]]
+  name = "mayfly"
+  set = true
+  [[class.method]]
+  name = "setFlyingSpeed"
+
+[[class]]
+name = "net/minecraft/world/entity/player/Inventory"
+  [[class.method]]
+  name = "getItem"
+
+[[class]]
+name = "net/minecraft/world/entity/EquipmentSlot"
+  [[class.method]]
+  name = "getIndex"
+  descriptor = "(I)I"
+
+[[class]]
+name = "net/minecraft/world/InteractionHand"
+  [[class.field]]
+  name = "MAIN_HAND"
+
+[[class]]
+name = "net/minecraft/world/level/GameType"
+  [[class.field]]
+  name = "SPECTATOR"

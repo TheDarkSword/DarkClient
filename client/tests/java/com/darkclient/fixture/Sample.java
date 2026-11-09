@@ -26,4 +26,8 @@ public class Sample {
     public long sum(int a, long b) {
         return a + b;
     }
+
+    public void fail() {
+        throw new IllegalStateException("fixture failure");
+    }
 }

@@ -1,0 +1,60 @@
+# JDK types the game hands back.
+
+[[class]]
+name = "java/lang/Iterable"
+external = true
+  [[class.method]]
+  name = "iterator"
+  descriptor = "()Ljava/util/Iterator;"
+
+[[class]]
+name = "java/util/Iterator"
+external = true
+  [[class.method]]
+  name = "hasNext"
+  descriptor = "()Z"
+  [[class.method]]
+  name = "next"
+  descriptor = "()Ljava/lang/Object;"
+
+[[class]]
+name = "java/util/List"
+external = true
+  [[class.method]]
+  name = "size"
+  descriptor = "()I"
+  [[class.method]]
+  name = "get"
+  descriptor = "(I)Ljava/lang/Object;"
+
+[[class]]
+name = "java/util/Map"
+external = true
+  [[class.method]]
+  name = "values"
+  descriptor = "()Ljava/util/Collection;"
+
+[[class]]
+name = "java/lang/Integer"
+external = true
+  [[class.method]]
+  name = "intValue"
+  descriptor = "()I"
+
+[[class]]
+name = "java/lang/Double"
+external = true
+  [[class.method]]
+  name = "doubleValue"
+  descriptor = "()D"
+  [[class.method]]
+  name = "valueOf"
+  descriptor = "(D)Ljava/lang/Double;"
+  static = true
+
+[[class]]
+name = "java/lang/Object"
+external = true
+  [[class.method]]
+  name = "equals"
+  descriptor = "(Ljava/lang/Object;)Z"

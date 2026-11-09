@@ -5,7 +5,9 @@
 //!            Minecraft. This is the manual Tier-3 test: it is not run in CI.
 //!   mc-dump  Write `mc-data/dumps/<version>.txt` from a version's client jar
 //!            (see `mc_dump.rs`).
+//!   bindgen  Generate the version bindings from `mc-data/` (see `bindgen.rs`).
 
+mod bindgen;
 mod mc_dump;
 
 use std::path::{Path, PathBuf};
@@ -16,8 +18,11 @@ fn main() {
     let result = match args.first().map(String::as_str) {
         Some("e2e") => e2e(),
         Some("mc-dump") => mc_dump::run(&workspace_root(), &args[1..]),
-        Some(other) => Err(format!("unknown task `{other}` (try: e2e, mc-dump)")),
-        None => Err("usage: cargo xtask <task>  (tasks: e2e, mc-dump)".to_string()),
+        Some("bindgen") => bindgen::run(&workspace_root(), &args[1..]),
+        Some(other) => Err(format!(
+            "unknown task `{other}` (try: e2e, mc-dump, bindgen)"
+        )),
+        None => Err("usage: cargo xtask <task>  (tasks: e2e, mc-dump, bindgen)".to_string()),
     };
     if let Err(message) = result {
         eprintln!("xtask: {message}");

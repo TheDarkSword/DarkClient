@@ -12,11 +12,12 @@
 //! This module finds the loader that actually owns the *running* game by
 //! scanning every live thread's context class loader and keeping the one whose
 //! `Minecraft.getInstance()` returns a non-null instance. Routing every later
-//! class lookup through that loader (see [`Mapping::lookup_class`]) makes the
-//! reflected mapping path work identically on vanilla, Fabric and Forge.
+//! class lookup through that loader (see [`Runtime::resolve_class`]) makes
+//! class resolution work identically on vanilla, Fabric and Forge.
 //!
-//! [`Mapping::lookup_class`]: crate::mapping::Mapping
+//! [`Runtime::resolve_class`]: crate::Runtime::resolve_class
 
+use jni::errors::Result;
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::JNIEnv;
 
@@ -40,15 +41,15 @@ enum LoaderProbe {
     /// `getInstance()` was still null (game not finished starting). Kept as a
     /// fallback in case no loader reports a live instance.
     RenderThread(GlobalRef),
-    /// The loader cannot load an unobfuscated `Minecraft`.
+    /// The loader cannot load `Minecraft`.
     Unrelated,
 }
 
 /// Finds the class loader that owns the live Minecraft instance.
 ///
-/// Returns `None` for vanilla obfuscated builds (no loader exposes an
-/// unobfuscated `Minecraft`) and on any JNI error, in which case the caller
-/// falls back to plain `FindClass` resolution.
+/// Returns `None` when no thread's loader owns the game (vanilla, where the
+/// loader is captured on first use instead) and on any JNI error, in which
+/// case the caller falls back to plain `FindClass` resolution.
 pub fn discover_game_loader(env: &mut JNIEnv) -> Option<GlobalRef> {
     match scan_threads(env) {
         Ok(loader) => loader,
@@ -61,7 +62,7 @@ pub fn discover_game_loader(env: &mut JNIEnv) -> Option<GlobalRef> {
 
 /// Walks `Thread.getAllStackTraces()` and probes each thread's context class
 /// loader, returning the first loader proven to run the game.
-fn scan_threads(env: &mut JNIEnv) -> anyhow::Result<Option<GlobalRef>> {
+fn scan_threads(env: &mut JNIEnv) -> Result<Option<GlobalRef>> {
     let thread_class = env.find_class("java/lang/Thread")?;
     let traces = env
         .call_static_method(&thread_class, "getAllStackTraces", "()Ljava/util/Map;", &[])?
@@ -78,7 +79,7 @@ fn scan_threads(env: &mut JNIEnv) -> anyhow::Result<Option<GlobalRef>> {
     while env.call_method(&iter, "hasNext", "()Z", &[])?.z()? {
         // Each thread spawns a handful of temporary JNI refs — scope them so a
         // process with many threads cannot overflow the local-reference table.
-        let probe = env.with_local_frame(32, |env| -> anyhow::Result<LoaderProbe> {
+        let probe = env.with_local_frame(32, |env| -> Result<LoaderProbe> {
             let thread = env
                 .call_method(&iter, "next", "()Ljava/lang/Object;", &[])?
                 .l()?;
@@ -108,11 +109,7 @@ fn scan_threads(env: &mut JNIEnv) -> anyhow::Result<Option<GlobalRef>> {
 
 /// Classifies `loader` by asking it to load `Minecraft` and, if it can,
 /// whether that class already holds a live game instance.
-fn probe_loader(
-    env: &mut JNIEnv,
-    thread: &JObject,
-    loader: &JObject,
-) -> anyhow::Result<LoaderProbe> {
+fn probe_loader(env: &mut JNIEnv, thread: &JObject, loader: &JObject) -> Result<LoaderProbe> {
     let class = match load_class(env, loader, MINECRAFT_CLASS) {
         Some(class) => class,
         None => return Ok(LoaderProbe::Unrelated),
@@ -155,7 +152,7 @@ fn load_class<'a>(env: &mut JNIEnv<'a>, loader: &JObject, binary_name: &str) -> 
 }
 
 /// Reads `Thread.getName()`, returning `None` on any JNI error.
-fn thread_name(env: &mut JNIEnv, thread: &JObject) -> anyhow::Result<Option<String>> {
+fn thread_name(env: &mut JNIEnv, thread: &JObject) -> Result<Option<String>> {
     let name = env
         .call_method(thread, "getName", "()Ljava/lang/String;", &[])?
         .l()?;

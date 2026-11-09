@@ -1,0 +1,39 @@
+# Items, inventories, menus, text.
+
+[[class]]
+name = "net/minecraft/world/item/ItemStack"
+  [[class.method]]
+  name = "isEmpty"
+  [[class.method]]
+  name = "getItem"
+  [[class.method]]
+  name = "getAttackAnimation"
+  since = "26.3"
+
+[[class]]
+name = "net/minecraft/world/item/Item"
+
+[[class]]
+name = "net/minecraft/world/item/Items"
+  [[class.field]]
+  name = "TOTEM_OF_UNDYING"
+
+[[class]]
+name = "net/minecraft/world/inventory/AbstractContainerMenu"
+  [[class.field]]
+  name = "containerId"
+  [[class.method]]
+  name = "getItems"
+
+[[class]]
+name = "net/minecraft/world/inventory/ContainerInput"
+  [[class.field]]
+  name = "SWAP"
+  [[class.field]]
+  name = "QUICK_MOVE"
+
+[[class]]
+name = "net/minecraft/network/chat/Component"
+  [[class.method]]
+  name = "getString"
+  descriptor = "()Ljava/lang/String;"

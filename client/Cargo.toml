@@ -31,6 +31,8 @@ ilhook = { version = "2.3.0", default-features = false, features = ["x64"] }
 lazy_static = "1.4.0"
 mapping-derive = { path = "../mapping-derive" }
 mc-versions = { path = "../mc-versions" }
+mc-runtime = { path = "../mc-runtime" }
+mc-bindings = { path = "../mc-bindings" }
 protocol = { path = "../protocol" }
 
 [dev-dependencies]

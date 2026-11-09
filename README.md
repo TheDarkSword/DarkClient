@@ -38,7 +38,8 @@ DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It
 
 ## 🏗️ Architecture
 
-A Cargo workspace of five crates plus an `xtask` helper:
+A Cargo workspace of the crates below plus version tooling (`mc-*`) and an
+`xtask` helper:
 
 ### **Protocol** (`protocol/`)
 The shared contract between the injector and the agent: the localhost
@@ -71,6 +72,19 @@ The core modification framework featuring:
 A `proc-macro` crate providing `#[derive(MappedObject)]` for the JVM-object
 wrappers in the client — generates the JNI helper methods so each game
 wrapper stays a thin, safe handle.
+
+### **Version support** (`mc-versions/`, `mc-runtime/`, `mc-bindings/`, `mc-bindgen/`, `mc-data/`)
+How one build runs on every supported Minecraft version:
+- `mc-data/spec/` lists the game members the client uses, named as the newest
+  version names them; `mc-data/adapters/<version>.toml` records what changed
+  in that version (renames, moved classes, hand-written shims), ViaVersion
+  style; `mc-data/dumps/` holds each version's bound classes, read from the
+  game jars by `cargo xtask mc-dump`.
+- `cargo xtask bindgen` checks that every member resolves on every dumped
+  version and generates `mc-bindings` — typed functions that call the right
+  member on the running version — and the supported-version list.
+- `mc-runtime` is what the bindings run on: the JVM, the game class loader
+  (vanilla, Fabric, Forge/NeoForge) and cached JNI ids.
 
 ## 📋 Prerequisites
 
@@ -182,10 +196,12 @@ DarkClient/
 │       ├── 📁 module/       # Module framework + registry
 │       └── 📁 net/          # Netty packet layer (packet structs + dispatch)
 ├── 📁 mapping-derive/       # proc-macro: #[derive(MappedObject)]
-├── 📁 xtask/                # Workspace task runner (cargo xtask e2e)
-├── 📁 mc-versions/          # Supported versions + version parsing
-├── 📁 mc-bindgen/           # Tooling: version dumps from the game jars
-├── 📁 mc-data/              # Bound class list + per-version dumps
+├── 📁 xtask/                # Task runner: e2e, mc-dump, bindgen
+├── 📁 mc-versions/          # Supported versions (generated) + version parsing
+├── 📁 mc-runtime/           # JVM, game class loader, cached JNI ids
+├── 📁 mc-bindings/          # Generated per-version bindings + shims
+├── 📁 mc-bindgen/           # Tooling: dumps from the game jars, bindings generator
+├── 📁 mc-data/              # Spec, version adapters, per-version dumps
 └── 📄 Cargo.toml            # Workspace configuration
 ```
 

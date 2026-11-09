@@ -1,0 +1,8 @@
+[package]
+name = "mc-bindings"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jni.workspace = true
+mc-runtime = { path = "../mc-runtime" }

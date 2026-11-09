@@ -1,0 +1,11 @@
+# Minecraft 26.2, relative to 26.1.2.
+
+# `getMainCamera()` lost its prefix.
+[[rename]]
+member = "GameRenderer.mainCamera"
+before = "getMainCamera"
+
+# The open screen moved from `Minecraft.screen` to `Gui.screen()`.
+[[shim]]
+member = "Gui.screen"
+before = "gui_screen_from_minecraft"

@@ -1,0 +1,11 @@
+[package]
+name = "mc-runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+jni.workspace = true
+dashmap.workspace = true
+log.workspace = true
+thiserror.workspace = true
+mc-versions = { path = "../mc-versions" }

@@ -7,10 +7,9 @@
 
 use std::fmt;
 
-/// Version ids — exactly as `version.json` / `WorldVersion.id()` report them —
-/// DarkClient is verified to work on, with vanilla, Fabric and Forge/NeoForge.
-/// Anything else, snapshots included, is refused unless the user forces it.
-pub const SUPPORTED_VERSIONS: &[&str] = &["26.1", "26.1.1", "26.1.2", "26.2", "26.3"];
+mod supported;
+
+pub use supported::SUPPORTED_VERSIONS;
 
 /// Whether `id` is a supported version.
 pub fn is_supported(id: &str) -> bool {

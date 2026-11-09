@@ -1,0 +1,69 @@
+# The connection and the packets the client reads or rewrites.
+
+[[class]]
+name = "net/minecraft/network/Connection"
+  [[class.field]]
+  name = "channel"
+
+[[class]]
+name = "net/minecraft/network/protocol/game/ClientGamePacketListener"
+
+[[class]]
+name = "net/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket"
+  [[class.constructor]]
+  descriptor = "(ILnet/minecraft/world/phys/Vec3;)V"
+  [[class.method]]
+  name = "id"
+  [[class.method]]
+  name = "movement"
+
+[[class]]
+name = "net/minecraft/network/protocol/game/ClientboundPlayerInfoUpdatePacket"
+  [[class.method]]
+  name = "handle"
+  descriptor = "(Lnet/minecraft/network/protocol/game/ClientGamePacketListener;)V"
+
+[[class]]
+name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket"
+  [[class.method]]
+  name = "getX"
+  [[class.method]]
+  name = "getY"
+  [[class.method]]
+  name = "getZ"
+  [[class.method]]
+  name = "getYRot"
+  [[class.method]]
+  name = "getXRot"
+  [[class.method]]
+  name = "isOnGround"
+  [[class.method]]
+  name = "horizontalCollision"
+  [[class.method]]
+  name = "hasPosition"
+  [[class.method]]
+  name = "hasRotation"
+
+[[class]]
+name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Pos"
+rust = "MovePlayerPos"
+  [[class.constructor]]
+  descriptor = "(DDDZZ)V"
+
+[[class]]
+name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$PosRot"
+rust = "MovePlayerPosRot"
+  [[class.constructor]]
+  descriptor = "(DDDFFZZ)V"
+
+[[class]]
+name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Rot"
+rust = "MovePlayerRot"
+  [[class.constructor]]
+  descriptor = "(FFZZ)V"
+
+[[class]]
+name = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$StatusOnly"
+rust = "MovePlayerStatusOnly"
+  [[class.constructor]]
+  descriptor = "(ZZ)V"
