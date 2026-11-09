@@ -49,6 +49,20 @@ pub fn open_glfw_library() -> Option<Library> {
     }
 }
 
+/// Opens the SDL3 dylib only if the host already loaded it.
+pub fn open_sdl_library() -> Option<Library> {
+    // SAFETY: RTLD_NOLOAD never loads anything new; it only returns a handle
+    // to a dylib the host process already maps.
+    unsafe {
+        libloading::os::unix::Library::open(
+            Some("libSDL3.0.dylib"),
+            libloading::os::unix::RTLD_LAZY | libc::RTLD_NOLOAD,
+        )
+        .ok()
+        .map(Library::from)
+    }
+}
+
 /// No frame-hook target is available on macOS yet — see the module docs.
 pub fn frame_hook_targets() -> Vec<HookTarget> {
     warn!("frame hooking is not implemented on macOS; the overlay will not install");

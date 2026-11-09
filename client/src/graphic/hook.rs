@@ -2,7 +2,8 @@
 //!
 //! Intercepts the host's buffer-swap call so the overlay renders and the
 //! client ticks exactly once per frame. Per-platform entry-point resolution
-//! lives in [`crate::graphic::platform`].
+//! lives in [`crate::graphic::platform`]; under the Vulkan backend the frame
+//! is driven by [`crate::graphic::vulkan`]'s present hook instead.
 
 use crate::graphic::platform;
 use crate::mapping::entity::{EntityRef, LivingEntityRef};
@@ -32,6 +33,12 @@ fn global_hook() -> &'static Mutex<Option<HookHandle>> {
 
 // --- Per-frame logic -------------------------------------------------------
 
+/// The player's tick counter as last observed. Changes exactly when a new
+/// game tick has run, so per-tick work can key off it.
+pub fn last_tick() -> i32 {
+    LAST_TICK.load(Ordering::Relaxed)
+}
+
 /// `ilhook` trampoline for the host's buffer-swap function.
 unsafe extern "win64" fn swap_buffers_hook(_registers: *mut Registers, _user_data: usize) {
     on_frame();
@@ -51,21 +58,20 @@ unsafe fn on_frame() {
         GL_LOADED.store(true, Ordering::Relaxed);
     }
 
+    frame_logic();
+    crate::graphic::ui_engine::render_gl();
+}
+
+/// Per-frame client logic, shared by every graphics backend.
+pub(crate) fn frame_logic() {
     check_tick();
     // Ease combat-module rotations toward their target every frame — this is
     // what makes aiming smooth rather than the visible 20 Hz tick steps.
     crate::module::combat::rotation::update();
-    render_overlay();
-}
-
-/// Renders the egui overlay for the current frame.
-unsafe fn render_overlay() {
-    // Install the input hooks lazily — they need the live GLFW window. The
+    // Install the input hooks lazily — they need the live window. The
     // overlay renders whether or not a world is loaded, so the GUI works
     // even when the client is injected from the main menu.
     crate::graphic::input::init();
-
-    crate::graphic::ui_engine::render_egui_ui();
 }
 
 /// Detects a new game tick by watching the player's tick counter, and ticks
@@ -102,7 +108,9 @@ fn check_tick() {
         Err(_) => return,
     };
 
-    if tick_count > LAST_TICK.load(Ordering::Relaxed) {
+    // Any change is a new tick: a respawned or re-joined player is a new
+    // `LocalPlayer` whose counter restarts from zero.
+    if tick_count != LAST_TICK.load(Ordering::Relaxed) {
         LAST_TICK.store(tick_count, Ordering::Relaxed);
         // Keep our Netty handler on the live connection's pipeline.
         crate::net::ensure_installed();
@@ -134,9 +142,13 @@ fn hooker_for(target_addr: usize) -> Hooker {
     )
 }
 
-/// Installs the buffer-swap hook that drives the overlay, trying every
-/// platform-provided target until one hooks successfully.
+/// Installs the hook that drives the overlay: the Vulkan present hook when
+/// the game renders through Vulkan, otherwise the buffer-swap hook, trying
+/// every platform-provided target until one hooks successfully.
 pub fn install_hooks() -> anyhow::Result<()> {
+    if crate::graphic::vulkan::install()? {
+        return Ok(());
+    }
     for target in platform::frame_hook_targets() {
         // SAFETY: `target.address` is a function address resolved by the
         // platform layer; `ilhook` patches it in place.
@@ -154,8 +166,9 @@ pub fn install_hooks() -> anyhow::Result<()> {
     ))
 }
 
-/// Removes the active buffer-swap hook, restoring the original bytes.
+/// Removes the active frame hook, restoring the original bytes or pointer.
 pub fn uninstall_hooks() {
+    crate::graphic::vulkan::uninstall();
     let mut guard = global_hook().lock().unwrap();
     if guard.take().is_some() {
         info!("Buffer-swap hook removed; memory restored.");

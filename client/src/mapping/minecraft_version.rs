@@ -24,6 +24,25 @@ impl MinecraftVersion {
             patch,
         }
     }
+
+    /// Parses a game version id as `WorldVersion.id()` reports it: `26.3`,
+    /// `26.1.2`, or a pre-release such as `26.4-snapshot-7` / `26.1-rc-1`,
+    /// which already carries the names of the release it precedes. Legacy
+    /// weekly snapshot ids (`26w14a`) have no ordered form and yield `None`.
+    pub fn parse_id(id: &str) -> Option<MinecraftVersion> {
+        let release = id.split('-').next()?;
+        let mut parts = release.split('.').map(|part| part.parse::<u32>());
+        let major = parts.next()?.ok()?;
+        let minor = parts.next()?.ok()?;
+        let patch = match parts.next() {
+            Some(patch) => patch.ok()?,
+            None => 0,
+        };
+        if parts.next().is_some() {
+            return None;
+        }
+        Some(MinecraftVersion::new(major, minor, patch))
+    }
 }
 
 impl std::fmt::Display for MinecraftVersion {
@@ -62,5 +81,46 @@ impl<'de> Deserialize<'de> for MinecraftVersion {
             minor,
             patch,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MinecraftVersion;
+
+    #[test]
+    fn release_ids_parse_with_an_optional_patch() {
+        assert_eq!(
+            MinecraftVersion::parse_id("26.3"),
+            Some(MinecraftVersion::new(26, 3, 0))
+        );
+        assert_eq!(
+            MinecraftVersion::parse_id("26.1.2"),
+            Some(MinecraftVersion::new(26, 1, 2))
+        );
+        assert_eq!(
+            MinecraftVersion::parse_id("1.21.11"),
+            Some(MinecraftVersion::new(1, 21, 11))
+        );
+    }
+
+    #[test]
+    fn pre_releases_parse_as_the_release_they_precede() {
+        assert_eq!(
+            MinecraftVersion::parse_id("26.4-snapshot-7"),
+            Some(MinecraftVersion::new(26, 4, 0))
+        );
+        assert_eq!(
+            MinecraftVersion::parse_id("26.1-rc-1"),
+            Some(MinecraftVersion::new(26, 1, 0))
+        );
+    }
+
+    #[test]
+    fn unordered_ids_do_not_parse() {
+        assert_eq!(MinecraftVersion::parse_id("26w14a"), None);
+        assert_eq!(MinecraftVersion::parse_id("26"), None);
+        assert_eq!(MinecraftVersion::parse_id("1.2.3.4"), None);
+        assert_eq!(MinecraftVersion::parse_id(""), None);
     }
 }

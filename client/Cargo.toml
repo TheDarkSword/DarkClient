@@ -18,6 +18,10 @@ thiserror.workspace = true
 dashmap.workspace = true
 libc.workspace = true
 egui_glow = "0.29.0"
+# Vulkan overlay (Minecraft 26.2+ "Prefer Vulkan"): egui drawn onto the
+# game's own swapchain images, through handles borrowed from the game.
+ash = { version = "0.38", default-features = false, features = ["std", "debug"] }
+egui-ash-renderer = "0.8"
 glow = "0.14.0"
 serde_json = "1.0.135"
 libloading = "0.9.0"

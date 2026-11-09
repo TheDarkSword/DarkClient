@@ -6,11 +6,13 @@
 //! position, type and stats. Doing that per frame is what tanks the FPS, so it
 //! is **decoupled from the frame rate**:
 //!
-//! * [`gather`] (all the JNI work) runs at most ~20 Hz, throttled by wall time.
-//! * Every frame only reads the camera (~6 JNI calls) and does pure-CPU
-//!   projection + egui drawing.
-//! * Positions are interpolated between the last two gathers, so boxes move
-//!   smoothly even though the data behind them updates at 20 Hz.
+//! * [`gather`] (all the JNI work) runs once per game tick.
+//! * Every frame only reads the camera, the partial tick and the view-bobbing
+//!   state (a few JNI calls) and does pure-CPU projection + egui drawing.
+//! * Each entity is drawn at `lerp(partial_tick, old, current)` — exactly
+//!   where Minecraft renders it — and the projection replays Minecraft's view
+//!   bobbing and damage tilt, so boxes stay on the model while the entity or
+//!   the player moves.
 //! * Every JNI scope is wrapped in a local-reference frame: without this the
 //!   JVM local-ref table grows unbounded, which is itself a slow FPS killer.
 //!
@@ -18,6 +20,8 @@
 //! every [`CHEST_SCAN_INTERVAL`].
 
 use crate::mapping::client::camera::Camera;
+use crate::mapping::client::delta_tracker::DeltaTracker;
+use crate::mapping::client::game_renderer::{CameraBob, GameRenderer};
 use crate::mapping::client::world::World;
 use crate::mapping::entity::mob::Mob;
 use crate::mapping::entity::player::Player;
@@ -30,13 +34,10 @@ use egui::{
     pos2, vec2, Align2, Color32, Context, FontId, Id, LayerId, Order, Painter, Pos2, Rect,
     Rounding, Stroke,
 };
-use std::collections::HashMap;
+use std::f64::consts::PI;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Minimum wall-time between two entity gathers (≈15 Hz). Interpolation keeps
-/// the boxes smooth between gathers, so a low rate costs nothing visually.
-const GATHER_INTERVAL: Duration = Duration::from_millis(66);
 /// Wall-time between two chest scans — chests do not move, so this is rare.
 const CHEST_SCAN_INTERVAL: Duration = Duration::from_secs(2);
 /// Half-extent, in chunks, of the area scanned for containers.
@@ -100,6 +101,112 @@ impl From<Vec3> for V3 {
     }
 }
 
+/// An affine transform of camera space (`+x` right, `+y` up, looking down
+/// `-z`) — how Minecraft's view bobbing and damage tilt move the world.
+#[derive(Debug, Clone, Copy)]
+struct Affine {
+    m: [[f64; 3]; 3],
+    t: [f64; 3],
+}
+
+impl Affine {
+    const IDENTITY: Affine = Affine {
+        m: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        t: [0.0; 3],
+    };
+
+    fn translation(x: f64, y: f64, z: f64) -> Affine {
+        Affine {
+            t: [x, y, z],
+            ..Affine::IDENTITY
+        }
+    }
+
+    fn rotation_x(degrees: f64) -> Affine {
+        let (s, c) = degrees.to_radians().sin_cos();
+        Affine {
+            m: [[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]],
+            t: [0.0; 3],
+        }
+    }
+
+    fn rotation_y(degrees: f64) -> Affine {
+        let (s, c) = degrees.to_radians().sin_cos();
+        Affine {
+            m: [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]],
+            t: [0.0; 3],
+        }
+    }
+
+    fn rotation_z(degrees: f64) -> Affine {
+        let (s, c) = degrees.to_radians().sin_cos();
+        Affine {
+            m: [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]],
+            t: [0.0; 3],
+        }
+    }
+
+    /// The product `self · other`: `other` applies first, the order
+    /// `PoseStack.mulPose` / `translate` compose in.
+    fn mul(self, other: Affine) -> Affine {
+        let mut m = [[0.0; 3]; 3];
+        for (i, row) in m.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                *cell = (0..3).map(|k| self.m[i][k] * other.m[k][j]).sum();
+            }
+        }
+        Affine {
+            m,
+            t: self.apply(other.t),
+        }
+    }
+
+    fn apply(&self, v: [f64; 3]) -> [f64; 3] {
+        let mut out = self.t;
+        for (i, o) in out.iter_mut().enumerate() {
+            *o += (0..3).map(|k| self.m[i][k] * v[k]).sum::<f64>();
+        }
+        out
+    }
+}
+
+/// Replays `GameRenderer.bobHurt` then `bobView`, which Minecraft multiplies
+/// into its projection matrix.
+fn bob_transform(bob: &CameraBob) -> Affine {
+    let mut pose = Affine::IDENTITY;
+    if bob.is_living {
+        if bob.is_dead_or_dying {
+            let duration = bob.death_time.min(20.0) as f64;
+            pose = pose.mul(Affine::rotation_z(40.0 - 8000.0 / (duration + 200.0)));
+        }
+        if bob.hurt_time >= 0.0 && bob.hurt_duration > 0.0 {
+            let hurt = (bob.hurt_time / bob.hurt_duration) as f64;
+            let hurt = (hurt.powi(4) * PI).sin();
+            let dir = bob.hurt_dir as f64;
+            let tilt = -hurt * 14.0 * bob.damage_tilt_strength as f64;
+            pose = pose
+                .mul(Affine::rotation_y(-dir))
+                .mul(Affine::rotation_z(tilt))
+                .mul(Affine::rotation_y(dir));
+        }
+    }
+    if bob.view_bobbing && bob.is_player {
+        let walk = bob.walk_distance as f64 * PI;
+        let amount = bob.bob as f64;
+        pose = pose
+            .mul(Affine::translation(
+                walk.sin() * amount * 0.5,
+                -(walk.cos() * amount).abs(),
+                0.0,
+            ))
+            .mul(Affine::rotation_z(walk.sin() * amount * 3.0))
+            .mul(Affine::rotation_x(
+                ((walk - 0.2).cos() * amount).abs() * 5.0,
+            ));
+    }
+    pose
+}
+
 /// A camera, reduced to exactly what world→screen projection needs.
 struct View {
     cam: V3,
@@ -110,6 +217,7 @@ struct View {
     tan_y: f64,
     w: f32,
     h: f32,
+    bob: Affine,
 }
 
 impl View {
@@ -117,12 +225,17 @@ impl View {
     /// lies behind the camera (where a perspective divide is meaningless).
     fn project(&self, p: V3) -> Option<Pos2> {
         let r = p.sub(self.cam);
-        let depth = r.dot(self.fwd);
+        // Camera space as Minecraft's view matrix produces it, then the
+        // bobbing Minecraft folds into its projection.
+        let [x, y, z] = self
+            .bob
+            .apply([r.dot(self.right), r.dot(self.up), -r.dot(self.fwd)]);
+        let depth = -z;
         if depth < 0.05 {
             return None;
         }
-        let ndc_x = (r.dot(self.right) / depth) / self.tan_x;
-        let ndc_y = (r.dot(self.up) / depth) / self.tan_y;
+        let ndc_x = (x / depth) / self.tan_x;
+        let ndc_y = (y / depth) / self.tan_y;
         let sx = (ndc_x * 0.5 + 0.5) * self.w as f64;
         let sy = (0.5 - ndc_y * 0.5) * self.h as f64;
         Some(pos2(sx as f32, sy as f32))
@@ -130,7 +243,15 @@ impl View {
 }
 
 /// Builds a [`View`] from Minecraft's camera state.
-fn build_view(cam: V3, yaw_deg: f32, pitch_deg: f32, fov_deg: f64, w: f32, h: f32) -> View {
+fn build_view(
+    cam: V3,
+    yaw_deg: f32,
+    pitch_deg: f32,
+    fov_deg: f64,
+    w: f32,
+    h: f32,
+    bob: Affine,
+) -> View {
     let yaw = (yaw_deg as f64).to_radians();
     let pitch = (pitch_deg as f64).to_radians();
     let (sy, cy) = yaw.sin_cos();
@@ -162,6 +283,7 @@ fn build_view(cam: V3, yaw_deg: f32, pitch_deg: f32, fov_deg: f64, w: f32, h: f3
         tan_y,
         w,
         h,
+        bob,
     }
 }
 
@@ -176,11 +298,10 @@ enum TargetKind {
 /// One living target, as captured by the last [`gather`].
 #[derive(Debug, Clone)]
 struct EntityTarget {
-    id: i32,
     kind: TargetKind,
-    /// Position at the previous gather — the start of the interpolation.
-    prev: V3,
-    /// Position at the latest gather — the end of the interpolation.
+    /// Position at the previous tick (`xOld` / `yOld` / `zOld`).
+    old: V3,
+    /// Position at the latest tick.
     pos: V3,
     width: f64,
     height: f64,
@@ -197,11 +318,13 @@ struct ChestTarget {
 
 /// Cross-frame ESP state: the cached camera handle and the latest snapshot.
 struct EspState {
+    renderer: Option<GameRenderer>,
     camera: Option<Camera>,
+    delta_tracker: Option<DeltaTracker>,
     entities: Vec<EntityTarget>,
     chests: Vec<ChestTarget>,
-    prev_gather: Option<Instant>,
-    last_gather: Option<Instant>,
+    /// Game tick the entity snapshot was taken at.
+    gathered_tick: Option<i32>,
     last_chest_scan: Option<Instant>,
     /// Field of view currently used for projection — eased toward `target_fov`
     /// each frame so flying / sprinting transitions do not snap the boxes.
@@ -210,20 +333,28 @@ struct EspState {
     target_fov: f64,
     /// Set once camera resolution has failed, so the failure is logged once.
     camera_logged: bool,
+    /// Set once the bobbing state could not be read (builds before 26.1), so
+    /// the projection stays unbobbed without retrying every frame.
+    bob_unavailable: bool,
+    /// Set once the partial tick could not be read, likewise.
+    partial_tick_unavailable: bool,
 }
 
 impl EspState {
     fn new() -> Self {
         EspState {
+            renderer: None,
             camera: None,
+            delta_tracker: None,
             entities: Vec::new(),
             chests: Vec::new(),
-            prev_gather: None,
-            last_gather: None,
+            gathered_tick: None,
             last_chest_scan: None,
             fov: 70.0,
             target_fov: 70.0,
             camera_logged: false,
+            bob_unavailable: false,
+            partial_tick_unavailable: false,
         }
     }
 }
@@ -435,22 +566,26 @@ pub fn draw(ctx: &Context) {
     let cfg = read_config();
     let mut state = state().lock().unwrap();
 
-    if !cfg.any_enabled() {
+    // Nothing to show at the menu or while dead — and the snapshot must not
+    // linger into the next world.
+    if !cfg.any_enabled() || !client().modules.is_active() {
         state.entities.clear();
         state.chests.clear();
+        state.gathered_tick = None;
         return;
     }
 
-    let now = Instant::now();
-    if state.last_gather.is_none_or(|t| now - t >= GATHER_INTERVAL) {
-        gather(&mut state, &cfg, now);
+    let tick = crate::graphic::hook::last_tick();
+    if state.gathered_tick != Some(tick) {
+        state.gathered_tick = Some(tick);
+        gather(&mut state, &cfg, Instant::now());
     }
 
     let view = match read_view(&mut state, ctx) {
         Some(view) => view,
         None => return,
     };
-    let t = interp_factor(&state, now);
+    let t = read_partial_tick(&mut state);
 
     let painter = ctx.layer_painter(LayerId::new(Order::Background, Id::new("esp_overlay")));
 
@@ -468,18 +603,46 @@ pub fn draw(ctx: &Context) {
     }
 }
 
-/// Fraction of the way from the previous gather to the latest one.
-fn interp_factor(state: &EspState, now: Instant) -> f64 {
-    match (state.prev_gather, state.last_gather) {
-        (Some(prev), Some(last)) => {
-            let span = (last - prev).as_secs_f64();
-            if span <= 1e-4 {
-                1.0
-            } else {
-                ((now - last).as_secs_f64() / span).clamp(0.0, 1.0)
-            }
+/// How far into the current tick this frame is — the factor Minecraft
+/// interpolated entities with. `1.0` (the latest positions) if unreadable.
+fn read_partial_tick(state: &mut EspState) -> f64 {
+    if state.partial_tick_unavailable {
+        return 1.0;
+    }
+    if state.delta_tracker.is_none() {
+        state.delta_tracker = minecraft().delta_tracker().ok();
+    }
+    let read = state
+        .delta_tracker
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no DeltaTracker"))
+        .and_then(DeltaTracker::partial_tick);
+    match read {
+        Ok(t) if t.is_finite() => (t as f64).clamp(0.0, 1.0),
+        Ok(_) => 1.0,
+        Err(e) => {
+            state.partial_tick_unavailable = true;
+            log::warn!("ESP: partial tick unavailable, drawing latest positions: {e}");
+            1.0
         }
-        _ => 1.0,
+    }
+}
+
+/// The view-bobbing / damage-tilt transform of the frame just rendered.
+fn read_bob(state: &mut EspState) -> Affine {
+    if state.bob_unavailable {
+        return Affine::IDENTITY;
+    }
+    let Some(renderer) = state.renderer.as_ref() else {
+        return Affine::IDENTITY;
+    };
+    match renderer.camera_bob() {
+        Ok(bob) => bob_transform(&bob),
+        Err(e) => {
+            state.bob_unavailable = true;
+            log::info!("ESP: view bobbing not compensated on this version: {e}");
+            Affine::IDENTITY
+        }
     }
 }
 
@@ -488,13 +651,19 @@ fn interp_factor(state: &EspState, now: Instant) -> f64 {
 /// Resolves the current camera into a [`View`], caching the [`Camera`] handle.
 fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
     if state.camera.is_none() {
-        match minecraft()
+        let resolved = minecraft()
             .game_renderer()
-            .and_then(|gr| gr.get_main_camera())
-        {
-            Ok(camera) => state.camera = Some(camera),
+            .and_then(|renderer| Ok((renderer.get_main_camera()?, renderer)));
+        match resolved {
+            Ok((camera, renderer)) => {
+                state.camera = Some(camera);
+                state.renderer = Some(renderer);
+            }
             Err(e) => {
-                log::debug!("ESP: camera unavailable: {e}");
+                if !state.camera_logged {
+                    state.camera_logged = true;
+                    log::warn!("ESP: camera unavailable: {e}");
+                }
                 return None;
             }
         }
@@ -522,6 +691,7 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
     };
 
     let fov_deg = resolve_fov(&camera, state, ctx);
+    let bob = read_bob(state);
 
     Some(build_view(
         cam_pos,
@@ -530,6 +700,7 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
         fov_deg,
         rect.width(),
         rect.height(),
+        bob,
     ))
 }
 
@@ -615,9 +786,6 @@ fn read_fov_effect_scale() -> anyhow::Result<f64> {
 
 /// Refreshes the snapshot: entities every call, chests on their own schedule.
 fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
-    state.prev_gather = state.last_gather;
-    state.last_gather = Some(now);
-
     let want_players = cfg.want_players();
     let want_mobs = cfg.want_mobs();
     if want_players || want_mobs {
@@ -636,10 +804,12 @@ fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
         }
         let range_sq = (range as f64) * (range as f64);
 
-        let previous = std::mem::take(&mut state.entities);
-        match gather_entities(&previous, range_sq, want_players, want_mobs) {
+        match gather_entities(range_sq, want_players, want_mobs) {
             Ok(list) => state.entities = list,
-            Err(e) => log::debug!("ESP: entity gather failed: {e}"),
+            Err(e) => {
+                state.entities.clear();
+                log::debug!("ESP: entity gather failed: {e}");
+            }
         }
     } else {
         state.entities.clear();
@@ -664,7 +834,6 @@ fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
 
 /// Walks `Level.entitiesForRendering()` once, classifying players and mobs.
 fn gather_entities(
-    previous: &[EntityTarget],
     range_sq: f64,
     want_player: bool,
     want_mob: bool,
@@ -677,9 +846,6 @@ fn gather_entities(
     let local_id = player.id()?;
     let player_pos: V3 = player.get_position()?.into();
 
-    // Carry positions forward so the new snapshot can interpolate from them.
-    let prev_pos: HashMap<i32, V3> = previous.iter().map(|e| (e.id, e.pos)).collect();
-
     let mut out: Vec<EntityTarget> = Vec::new();
     for entity in world.get_entities()? {
         if let Some(target) = process_entity(
@@ -689,7 +855,6 @@ fn gather_entities(
             range_sq,
             want_player,
             want_mob,
-            &prev_pos,
         ) {
             out.push(target);
         }
@@ -701,7 +866,6 @@ fn gather_entities(
 /// Turns one [`Entity`] into an [`EntityTarget`], or `None` if it is not a
 /// wanted target. Errors are swallowed per-field so one bad entity cannot
 /// abort the whole gather.
-#[allow(clippy::too_many_arguments)]
 fn process_entity(
     entity: &Entity,
     local_id: i32,
@@ -709,7 +873,6 @@ fn process_entity(
     range_sq: f64,
     want_player: bool,
     want_mob: bool,
-    prev_pos: &HashMap<i32, V3>,
 ) -> Option<EntityTarget> {
     // Cheap distance gate first — a far entity then costs just this one JNI
     // call. Skipped entirely if `distanceToSqr` is not exposed by this build.
@@ -733,6 +896,7 @@ fn process_entity(
     }
 
     let pos: V3 = entity.get_position().ok()?.into();
+    let old = entity.get_old_position().map(V3::from).unwrap_or(pos);
     let width = entity.bb_width().ok()? as f64;
     let height = entity.bb_height().ok()? as f64;
 
@@ -740,9 +904,8 @@ fn process_entity(
     let (health, max_health) = read_health(entity).unwrap_or((0.0, 0.0));
 
     Some(EntityTarget {
-        id,
         kind,
-        prev: prev_pos.get(&id).copied().unwrap_or(pos),
+        old,
         pos,
         width,
         height,
@@ -906,7 +1069,13 @@ fn draw_wire_box(
     bounds
 }
 
-fn draw_entity(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cfg: &EspConfig) {
+fn draw_entity(
+    painter: &Painter,
+    view: &View,
+    entity: &EntityTarget,
+    partial_tick: f64,
+    cfg: &EspConfig,
+) {
     let icfg = match entity.kind {
         TargetKind::Player => &cfg.player,
         TargetKind::Mob => &cfg.mob,
@@ -917,7 +1086,7 @@ fn draw_entity(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
         return;
     }
 
-    let feet = entity.prev.lerp(entity.pos, t);
+    let feet = entity.old.lerp(entity.pos, partial_tick);
     let half = entity.width * 0.5;
     let corners = box_corners(
         V3 {
@@ -964,7 +1133,13 @@ fn draw_entity(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
 /// Draws a line from the bottom-centre of the screen to one entity. Skips the
 /// entity if its kind is not wanted, it lies past the tracer range, or its
 /// centre is behind the camera.
-fn draw_tracer(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cfg: &TracerCfg) {
+fn draw_tracer(
+    painter: &Painter,
+    view: &View,
+    entity: &EntityTarget,
+    partial_tick: f64,
+    cfg: &TracerCfg,
+) {
     let want = match entity.kind {
         TargetKind::Player => cfg.players,
         TargetKind::Mob => cfg.mobs,
@@ -973,7 +1148,7 @@ fn draw_tracer(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
         return;
     }
 
-    let feet = entity.prev.lerp(entity.pos, t);
+    let feet = entity.old.lerp(entity.pos, partial_tick);
     let center = V3 {
         x: feet.x,
         y: feet.y + entity.height * 0.5,
@@ -993,12 +1168,18 @@ fn draw_tracer(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
 /// Draws a floating name tag above one player — a background panel with the
 /// player's name, optionally their health and distance. Skips non-players,
 /// nameless entities, those past the range, or any behind the camera.
-fn draw_nametag(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cfg: &NametagCfg) {
+fn draw_nametag(
+    painter: &Painter,
+    view: &View,
+    entity: &EntityTarget,
+    partial_tick: f64,
+    cfg: &NametagCfg,
+) {
     if entity.kind != TargetKind::Player || entity.name.is_empty() {
         return;
     }
 
-    let feet = entity.prev.lerp(entity.pos, t);
+    let feet = entity.old.lerp(entity.pos, partial_tick);
     let head = V3 {
         x: feet.x,
         y: feet.y + entity.height + 0.45,
@@ -1128,7 +1309,15 @@ mod tests {
     #[test]
     fn a_point_dead_ahead_projects_to_the_screen_centre() {
         // Camera at the origin, yaw/pitch 0 -> looking toward +Z.
-        let view = build_view(v3(0.0, 0.0, 0.0), 0.0, 0.0, 70.0, 1920.0, 1080.0);
+        let view = build_view(
+            v3(0.0, 0.0, 0.0),
+            0.0,
+            0.0,
+            70.0,
+            1920.0,
+            1080.0,
+            Affine::IDENTITY,
+        );
         let projected = view
             .project(v3(0.0, 0.0, 10.0))
             .expect("a point straight ahead must project");
@@ -1138,8 +1327,45 @@ mod tests {
 
     #[test]
     fn a_point_behind_the_camera_does_not_project() {
-        let view = build_view(v3(0.0, 0.0, 0.0), 0.0, 0.0, 70.0, 1920.0, 1080.0);
+        let view = build_view(
+            v3(0.0, 0.0, 0.0),
+            0.0,
+            0.0,
+            70.0,
+            1920.0,
+            1080.0,
+            Affine::IDENTITY,
+        );
         assert!(view.project(v3(0.0, 0.0, -10.0)).is_none());
+    }
+
+    #[test]
+    fn affine_mul_applies_the_right_operand_first() {
+        // Translate along x, then rotate 90° about z: x ends up on y.
+        let pose = Affine::rotation_z(90.0).mul(Affine::translation(1.0, 0.0, 0.0));
+        let [x, y, z] = pose.apply([0.0, 0.0, 0.0]);
+        assert!(x.abs() < 1e-9 && (y - 1.0).abs() < 1e-9 && z.abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_still_unhurt_player_has_no_bob() {
+        let bob = CameraBob {
+            view_bobbing: true,
+            is_player: true,
+            is_living: true,
+            hurt_time: -0.5,
+            ..CameraBob::default()
+        };
+        let [x, y, z] = bob_transform(&bob).apply([1.0, 2.0, 3.0]);
+        assert!((x - 1.0).abs() < 1e-9 && (y - 2.0).abs() < 1e-9 && (z - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_bob_sway_to_the_right_moves_projections_right() {
+        let bob = Affine::translation(0.5, 0.0, 0.0);
+        let view = build_view(v3(0.0, 0.0, 0.0), 0.0, 0.0, 70.0, 1920.0, 1080.0, bob);
+        let projected = view.project(v3(0.0, 0.0, 10.0)).unwrap();
+        assert!(projected.x > 960.0 + 1.0);
     }
 
     #[test]

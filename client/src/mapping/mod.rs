@@ -1,6 +1,6 @@
 use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
-use crate::mapping::minecraft_version::MinecraftVersion;
+pub use crate::mapping::minecraft_version::MinecraftVersion;
 pub use crate::mapping::object::MappedObject;
 use dashmap::DashMap;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
@@ -163,14 +163,18 @@ impl Mapping {
                 ),
                 None => info!("Unobfuscated Minecraft detected — using runtime reflection mapping"),
             }
-            return Ok(Mapping {
+            let mut mapping = Mapping {
                 jvm,
                 mode: Mode::Reflected,
                 version: MinecraftVersion::LATEST,
                 classes: DashMap::new(),
                 class_loader: RwLock::new(game_loader),
                 class_handles: DashMap::new(),
-            });
+            };
+            // Unobfuscated builds still rename symbols between releases, so
+            // the rename registry needs the real version here too.
+            mapping.version = mapping.running_version();
+            return Ok(mapping);
         }
 
         info!("Obfuscated Minecraft detected — using bundled Mojmap mappings");
@@ -227,6 +231,50 @@ impl Mapping {
 
     pub fn get_version(&self) -> MinecraftVersion {
         self.version
+    }
+
+    /// The running version, from `SharedConstants.getCurrentVersion().id()`.
+    /// Falls back to [`MinecraftVersion::LATEST`] when it cannot be read or
+    /// parsed, which resolves every name to its newest form.
+    fn running_version(&self) -> MinecraftVersion {
+        let read = || -> anyhow::Result<String> {
+            let mut env = self.get_env()?;
+            env.with_local_frame(8, |env| -> anyhow::Result<String> {
+                let class = self.resolve_class(env, "net/minecraft/SharedConstants")?;
+                let version = env
+                    .call_static_method(
+                        &class,
+                        "getCurrentVersion",
+                        "()Lnet/minecraft/WorldVersion;",
+                        &[],
+                    )?
+                    .l()?;
+                let id = env
+                    .call_method(&version, "id", "()Ljava/lang/String;", &[])?
+                    .l()?;
+                Ok(env.get_string(&JString::from(id))?.into())
+            })
+        };
+
+        match read() {
+            Ok(id) => match MinecraftVersion::parse_id(&id) {
+                Some(version) => {
+                    info!("Minecraft {id} (version {version})");
+                    version
+                }
+                None => {
+                    log::warn!("Unrecognized Minecraft version id {id:?}; assuming latest names");
+                    MinecraftVersion::LATEST
+                }
+            },
+            Err(e) => {
+                if let Ok(env) = self.get_env() {
+                    let _ = env.exception_clear();
+                }
+                log::warn!("Could not read the Minecraft version ({e}); assuming latest names");
+                MinecraftVersion::LATEST
+            }
+        }
     }
 
     /// Resolves a mapped class by its deobfuscated name. In reflected mode the

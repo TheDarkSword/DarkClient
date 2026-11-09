@@ -16,8 +16,15 @@ pub enum MinecraftClassType {
     Iterator,
     Mob,
     Screen,
+    Gui,
     GameRenderer,
     Camera,
+    DeltaTracker,
+    GameRenderState,
+    LevelRenderState,
+    CameraRenderState,
+    CameraEntityRenderState,
+    OptionsRenderState,
     LivingEntity,
     Component,
     LevelReader,
@@ -82,7 +89,24 @@ impl MinecraftClassType {
             MinecraftClassType::Iterator => "java/util/Iterator",
             MinecraftClassType::Mob => "net/minecraft/world/entity/Mob",
             MinecraftClassType::Screen => "net/minecraft/client/gui/screens/Screen",
+            MinecraftClassType::Gui => "net/minecraft/client/gui/Gui",
             MinecraftClassType::GameRenderer => "net/minecraft/client/renderer/GameRenderer",
+            MinecraftClassType::DeltaTracker => "net/minecraft/client/DeltaTracker",
+            MinecraftClassType::GameRenderState => {
+                "net/minecraft/client/renderer/state/GameRenderState"
+            }
+            MinecraftClassType::LevelRenderState => {
+                "net/minecraft/client/renderer/state/level/LevelRenderState"
+            }
+            MinecraftClassType::CameraRenderState => {
+                "net/minecraft/client/renderer/state/level/CameraRenderState"
+            }
+            MinecraftClassType::CameraEntityRenderState => {
+                "net/minecraft/client/renderer/state/level/CameraEntityRenderState"
+            }
+            MinecraftClassType::OptionsRenderState => {
+                "net/minecraft/client/renderer/state/OptionsRenderState"
+            }
             MinecraftClassType::Camera => "net/minecraft/client/Camera",
             MinecraftClassType::LivingEntity => "net/minecraft/world/entity/LivingEntity",
             MinecraftClassType::Component => "net/minecraft/network/chat/Component",

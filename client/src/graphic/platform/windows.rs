@@ -55,23 +55,42 @@ pub fn open_glfw_library() -> Option<Library> {
     }
 }
 
-/// The buffer-swap function to hook: `wglSwapBuffers` from `opengl32.dll`.
+/// Shared library of SDL3, the windowing layer of Minecraft 26.3+.
+const SDL_LIBRARY: &str = "SDL3.dll";
+
+/// Opens SDL3 only if the host already loaded it — never pulls in a stray
+/// copy from the DLL search path on versions that still use GLFW.
+pub fn open_sdl_library() -> Option<Library> {
+    libloading::os::windows::Library::open_already_loaded(SDL_LIBRARY)
+        .ok()
+        .map(Library::from)
+}
+
+/// The buffer-swap functions to hook: `SDL_GL_SwapWindow` when the game runs
+/// on SDL3, then `wglSwapBuffers` from `opengl32.dll`.
 pub fn frame_hook_targets() -> Vec<HookTarget> {
-    // SAFETY: resolving wglSwapBuffers from opengl32.dll by name.
-    unsafe {
-        let Ok(library) = Library::new(GL_LIBRARY) else {
-            return Vec::new();
+    let mut targets = Vec::new();
+    for (library, symbol) in [
+        (open_sdl_library(), "SDL_GL_SwapWindow"),
+        // SAFETY: opening the GL library the host process already maps.
+        (unsafe { Library::new(GL_LIBRARY).ok() }, "wglSwapBuffers"),
+    ] {
+        let Some(library) = library else {
+            continue;
         };
-        let address = match library.get::<unsafe extern "system" fn()>(b"wglSwapBuffers") {
-            Ok(symbol) => *symbol as *const () as usize,
-            Err(_) => return Vec::new(),
+        // SAFETY: resolving an exported function by name.
+        let address = match unsafe { library.get::<unsafe extern "system" fn()>(symbol.as_bytes()) }
+        {
+            Ok(function) => *function as *const () as usize,
+            Err(_) => continue,
         };
-        info!("found wglSwapBuffers in {GL_LIBRARY} at 0x{address:x}");
+        info!("found {symbol} at 0x{address:x}");
         // Keep the library handle alive for the process lifetime.
         std::mem::forget(library);
-        vec![HookTarget {
+        targets.push(HookTarget {
             address,
-            label: GL_LIBRARY.to_string(),
-        }]
+            label: symbol.to_string(),
+        });
     }
+    targets
 }

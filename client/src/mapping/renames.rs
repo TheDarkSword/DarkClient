@@ -50,6 +50,12 @@ static RENAMES: &[Rename] = &[
         canonical: "handleContainerInput",
         legacy: &[(v(26, 1, 0), "handleInventoryMouseClick")],
     },
+    // `GameRenderer.getMainCamera()` -> `GameRenderer.mainCamera()`
+    Rename::Member {
+        owner: MinecraftClassType::GameRenderer,
+        canonical: "mainCamera",
+        legacy: &[(v(26, 2, 0), "getMainCamera")],
+    },
     // class `ClickType` -> class `ContainerInput`
     Rename::Class {
         class: MinecraftClassType::ContainerInput,

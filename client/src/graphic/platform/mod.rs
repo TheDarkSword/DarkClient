@@ -1,5 +1,5 @@
 //! Platform-specific graphics glue: OpenGL entry-point resolution, the GLFW
-//! shared library, and the buffer-swap hook targets.
+//! and SDL3 shared libraries, and the buffer-swap hook targets.
 //!
 //! Linux and Windows are real. macOS resolves the libraries but provides no
 //! frame-hook target — `ilhook` is x86-64 only — so the overlay does not
@@ -31,12 +31,26 @@ pub struct HookTarget {
 /// Resolves an OpenGL function pointer by name — the loader fed to `gl` and
 /// `glow`. Returns null when the symbol cannot be found.
 pub fn gl_proc_address(name: &str) -> *const c_void {
+    // Under SDL3 the context may be EGL (Wayland), which the system GL
+    // library cannot resolve for — SDL knows which one it created.
+    if let Some(sdl) = crate::graphic::sdl::api() {
+        let address = sdl.gl_proc_address(name);
+        if !address.is_null() {
+            return address;
+        }
+    }
     imp::gl_proc_address(name)
 }
 
 /// Opens the GLFW shared library the host process uses, if it can be found.
 pub fn open_glfw_library() -> Option<Library> {
     imp::open_glfw_library()
+}
+
+/// Opens the SDL3 shared library, only if the host process already loaded it
+/// (Minecraft 26.3+).
+pub fn open_sdl_library() -> Option<Library> {
+    imp::open_sdl_library()
 }
 
 /// The buffer-swap functions to try hooking, most specific first.

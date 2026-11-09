@@ -229,6 +229,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175571dd1d178ced59193a6fc02dde1b972eb0bc56c892cde9beeceac5bf0f6b"
 
 [[package]]
+name = "ash"
+version = "0.38.0+1.3.281"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bb44936d800fea8f016d7f2311c6a4f97aebd5dc86f09906139ec848cf3a46f"
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -660,8 +666,10 @@ name = "client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ash",
  "dashmap",
  "egui",
+ "egui-ash-renderer",
  "egui_glow",
  "gl_generator",
  "glow",
@@ -1047,6 +1055,18 @@ dependencies = [
  "nohash-hasher",
  "ron",
  "serde",
+]
+
+[[package]]
+name = "egui-ash-renderer"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b98634d0948894c6108149c954624d61ea952070649550cbb23e19e1913a6515"
+dependencies = [
+ "ash",
+ "egui",
+ "log",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

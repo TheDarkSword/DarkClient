@@ -40,11 +40,21 @@ pub fn open_glfw_library() -> Option<Library> {
     unsafe { Library::new(path).ok() }
 }
 
+/// Opens the SDL3 library the host loaded, if any.
+pub fn open_sdl_library() -> Option<Library> {
+    let path = find_library_path("libSDL3.so")?;
+    // SAFETY: loading the SDL library the host process already maps.
+    unsafe { Library::new(path).ok() }
+}
+
 /// The buffer-swap functions to try hooking, most specific first.
 pub fn frame_hook_targets() -> Vec<HookTarget> {
     // (library, exported swap function) candidates, most specific first.
     let mut candidates: Vec<(String, &str)> = Vec::new();
-    if let Some(path) = find_library_path("libglfw.so") {
+    if let Some(path) = find_library_path("libSDL3.so") {
+        info!("found SDL3 library: {path}");
+        candidates.push((path, "SDL_GL_SwapWindow"));
+    } else if let Some(path) = find_library_path("libglfw.so") {
         info!("found GLFW library: {path}");
         candidates.push((path, "glfwSwapBuffers"));
     } else if let Some(path) = find_library_path("liblwjgl.so") {

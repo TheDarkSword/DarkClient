@@ -16,6 +16,7 @@
 use crate::mapping::component::Component;
 use crate::mapping::entity::living::LivingEntity;
 use crate::mapping::math::Vec3;
+use crate::mapping::minecraft_version::MinecraftVersion;
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
@@ -64,6 +65,16 @@ pub trait EntityRef: MappedObject + Sized {
             let vec3 = self.call_method("position", &[])?.l()?;
             Vec3::read(&vec3)
         })
+    }
+
+    /// The entity's position at the previous tick — Minecraft renders it at
+    /// `lerp(partial_tick, old_position, position)`.
+    fn get_old_position(&self) -> anyhow::Result<Vec3> {
+        Ok(Vec3::new(
+            self.get_field("xOld", FieldType::Double)?.d()?,
+            self.get_field("yOld", FieldType::Double)?.d()?,
+            self.get_field("zOld", FieldType::Double)?.d()?,
+        ))
     }
 
     /// The entity's eye position — the origin to aim rotations from.
@@ -160,7 +171,14 @@ pub trait EntityRef: MappedObject + Sized {
 
     /// Sets the entity's invulnerability flag.
     fn set_invulnerable(&self, value: bool) -> anyhow::Result<()> {
-        self.call_method("setInvulnerable", &[JValue::from(value)])?;
+        // Inherited by every entity wrapper, so not expressible in the
+        // class-keyed rename registry.
+        let setter = if mapping().get_version() >= MinecraftVersion::new(26, 3, 0) {
+            "setPermanentlyInvulnerable"
+        } else {
+            "setInvulnerable"
+        };
+        self.call_method(setter, &[JValue::from(value)])?;
         Ok(())
     }
 
@@ -262,7 +280,31 @@ pub trait LivingEntityRef: EntityRef {
                     FieldType::Object(MinecraftClassType::InteractionHand),
                 )?
                 .l()?;
-            self.call_method("swing", &[JValue::Object(&hand)])?;
+            if mapping().get_version() >= MinecraftVersion::new(26, 3, 0) {
+                // 26.3 swings with the held item's attack animation, as
+                // `Minecraft.startAttack` does.
+                let stack = self
+                    .call_method("getItemInHand", &[JValue::Object(&hand)])?
+                    .l()?;
+                let animation = mapping()
+                    .call_method(
+                        MinecraftClassType::ItemStack,
+                        &stack,
+                        "getAttackAnimation",
+                        &[],
+                    )?
+                    .l()?;
+                self.call_method(
+                    "swing",
+                    &[
+                        JValue::Object(&hand),
+                        JValue::Object(&animation),
+                        JValue::from(false),
+                    ],
+                )?;
+            } else {
+                self.call_method("swing", &[JValue::Object(&hand)])?;
+            }
             Ok(())
         })
     }

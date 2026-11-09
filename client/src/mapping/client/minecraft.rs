@@ -1,3 +1,4 @@
+use crate::mapping::client::delta_tracker::DeltaTracker;
 use crate::mapping::client::game_renderer::GameRenderer;
 use crate::mapping::client::gamemode::MultiPlayerGameMode;
 use crate::mapping::client::options::Options;
@@ -5,6 +6,7 @@ use crate::mapping::client::screen::Screen;
 use crate::mapping::client::window::Window;
 use crate::mapping::client::world::World;
 use crate::mapping::entity::player::LocalPlayer;
+use crate::mapping::minecraft_version::MinecraftVersion;
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::GlobalRef;
@@ -112,6 +114,14 @@ impl Minecraft {
         })
     }
 
+    /// The frame timer. Present from the main menu onward.
+    pub fn delta_tracker(&self) -> anyhow::Result<DeltaTracker> {
+        self.in_frame(|| {
+            let obj = self.call_method("getDeltaTracker", &[])?.l()?;
+            Ok(DeltaTracker::new(mapping().new_global_ref(obj)?))
+        })
+    }
+
     /// The game options. Present from the main menu onward.
     pub fn options(&self) -> anyhow::Result<Options> {
         self.in_frame(|| {
@@ -145,9 +155,18 @@ impl Minecraft {
     /// treat as "a screen is open".
     pub fn current_screen(&self) -> Screen {
         self.in_frame(|| {
-            let screen = self
-                .get_field("screen", FieldType::Object(MinecraftClassType::Screen))?
-                .l()?;
+            let screen = if mapping().get_version() >= MinecraftVersion::new(26, 2, 0) {
+                // 26.2 moved the open screen from `Minecraft` into `Gui`.
+                let gui = self
+                    .get_field("gui", FieldType::Object(MinecraftClassType::Gui))?
+                    .l()?;
+                mapping()
+                    .call_method(MinecraftClassType::Gui, &gui, "screen", &[])?
+                    .l()?
+            } else {
+                self.get_field("screen", FieldType::Object(MinecraftClassType::Screen))?
+                    .l()?
+            };
             if screen.is_null() {
                 return Ok(Screen::None);
             }
