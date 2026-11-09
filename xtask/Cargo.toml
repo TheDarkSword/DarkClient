@@ -5,3 +5,5 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+mc_bindgen = { path = "../mc_bindgen" }
+mc_versions = { path = "../mc_versions" }

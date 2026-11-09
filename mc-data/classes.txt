@@ -1,0 +1,83 @@
+# Root classes for `cargo xtask mc-dump`: every Minecraft class the client
+# binds. Each dump also includes their supertypes found in the game jar, so
+# inherited members can be resolved. A root absent from a version is recorded
+# as `missing` in that version's dump. One JNI class name per line.
+
+# Referenced by name from the client source.
+com/mojang/blaze3d/platform/Window
+net/minecraft/client/Camera
+net/minecraft/client/DeltaTracker
+net/minecraft/client/gui/Gui
+net/minecraft/client/gui/screens/ChatScreen
+net/minecraft/client/gui/screens/inventory/AbstractContainerScreen
+net/minecraft/client/gui/screens/inventory/CraftingScreen
+net/minecraft/client/gui/screens/inventory/CreativeModeInventoryScreen
+net/minecraft/client/gui/screens/inventory/InventoryScreen
+net/minecraft/client/gui/screens/PauseScreen
+net/minecraft/client/gui/screens/Screen
+net/minecraft/client/KeyboardHandler
+net/minecraft/client/Minecraft
+net/minecraft/client/multiplayer/ClientLevel
+net/minecraft/client/multiplayer/ClientPacketListener
+net/minecraft/client/multiplayer/MultiPlayerGameMode
+net/minecraft/client/multiplayer/PlayerInfo
+net/minecraft/client/OptionInstance
+net/minecraft/client/Options
+net/minecraft/client/player/LocalPlayer
+net/minecraft/client/renderer/GameRenderer
+net/minecraft/client/renderer/state/GameRenderState
+net/minecraft/client/renderer/state/level/CameraEntityRenderState
+net/minecraft/client/renderer/state/level/CameraRenderState
+net/minecraft/client/renderer/state/level/LevelRenderState
+net/minecraft/client/renderer/state/OptionsRenderState
+net/minecraft/core/BlockPos
+net/minecraft/core/Direction
+net/minecraft/core/Vec3i
+net/minecraft/network/chat/Component
+net/minecraft/network/protocol/game/ClientboundPlayerInfoUpdatePacket
+net/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket
+net/minecraft/network/protocol/game/ServerboundMovePlayerPacket
+net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Pos
+net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$PosRot
+net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Rot
+net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$StatusOnly
+net/minecraft/SharedConstants
+net/minecraft/world/entity/Entity
+net/minecraft/world/entity/EquipmentSlot
+net/minecraft/world/entity/LivingEntity
+net/minecraft/world/entity/Mob
+net/minecraft/world/entity/player/Abilities
+net/minecraft/world/entity/player/Inventory
+net/minecraft/world/entity/player/Player
+net/minecraft/world/InteractionHand
+net/minecraft/world/inventory/AbstractContainerMenu
+net/minecraft/world/inventory/ContainerInput
+net/minecraft/world/item/Item
+net/minecraft/world/item/Items
+net/minecraft/world/item/ItemStack
+net/minecraft/world/level/block/entity/BarrelBlockEntity
+net/minecraft/world/level/block/entity/BlockEntity
+net/minecraft/world/level/block/entity/ChestBlockEntity
+net/minecraft/world/level/block/entity/EnderChestBlockEntity
+net/minecraft/world/level/block/entity/ShulkerBoxBlockEntity
+net/minecraft/world/level/block/state/BlockState
+net/minecraft/world/level/chunk/LevelChunk
+net/minecraft/world/level/GameType
+net/minecraft/world/level/LevelReader
+net/minecraft/world/phys/BlockHitResult
+net/minecraft/world/phys/Vec3
+net/minecraft/network/Connection
+net/minecraft/network/protocol/game/ClientGamePacketListener
+net/minecraft/WorldVersion
+net/minecraft/world/item/component/SwingAnimation
+
+# Reached only through reflection: the Vulkan backend (26.2 under
+# com/mojang/blaze3d, 26.3+ under com/mojang/renderpearl).
+com/mojang/blaze3d/systems/GpuSurface
+com/mojang/blaze3d/vulkan/VulkanDevice
+com/mojang/blaze3d/vulkan/VulkanGpuSurface
+com/mojang/blaze3d/vulkan/VulkanQueue
+com/mojang/renderpearl/frontend/FrontendGpuSurface
+com/mojang/renderpearl/backend/vulkan/VulkanDevice
+com/mojang/renderpearl/backend/vulkan/VulkanGpuSurface
+com/mojang/renderpearl/backend/vulkan/VulkanQueue

@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DarkClient is a Minecraft (Java Edition) modification framework written in Rust. It injects native libraries into a running Minecraft JVM and drives the game through JNI. It targets **unobfuscated** Minecraft 26.x — vanilla, Fabric and Forge/NeoForge alike — and only the exact version ids in `mc_versions::SUPPORTED_VERSIONS`; anything else (snapshots included) is refused unless the user forces it. Obfuscated Minecraft (≤ 1.21.11) is not supported.
 
-It is a Cargo workspace of six crates — `mc_versions`, `protocol`, `injector`, `agent_loader`, `client`, `mapping_derive` — plus an `xtask` helper.
+It is a Cargo workspace of seven crates — `mc_versions`, `protocol`, `injector`, `agent_loader`, `client`, `mapping_derive`, `mc_bindgen` — plus an `xtask` helper. `default-members` leaves the tooling (`mc_bindgen`, `xtask`) out of a plain `cargo build` / `cargo check`; `--workspace` includes it.
 
 ## Build & Common Commands
 
 ```bash
-cargo build --release              # build the workspace
+cargo build --release              # build the shipped crates (tooling excluded)
 cargo build -p client --release    # build a single crate
 cargo check --workspace            # fast check (preferred while iterating)
 cargo test --workspace             # all tests (needs a JDK — see Tests below)
@@ -19,6 +19,7 @@ cargo test -p client overload      # run tests matching a name
 cargo fmt --all
 cargo clippy --workspace
 cargo xtask e2e                    # manual end-to-end harness (see Tests)
+cargo xtask mc-dump --supported    # refresh mc-data/dumps from Mojang's jars (needs curl)
 ```
 
 - **Always build `--release` for runtime artifacts.** The release profile (`opt-level = "s"`, `lto = true`) is what CI and runtime expect; debug builds also silence `dead_code` warnings via `lib.rs`.
@@ -33,7 +34,9 @@ cargo xtask e2e                    # manual end-to-end harness (see Tests)
 - **`agent_loader/`** — `cdylib` injected first. A `#[ctor]` runs on load. Split into focused modules: `logging`, `jvm` (discovery + health monitor), `server` (TCP accept loop), `command` (dispatch), `library` (client lifecycle), `platform` (signal handlers).
 - **`client/`** — `cdylib`, the actual mod framework. JNI-driven game interaction, OpenGL overlay, module system.
 - **`mapping_derive/`** — `proc-macro` crate. Provides `#[derive(MappedObject)]` for the JVM-object wrappers in `client` (see *Game wrappers* below).
-- **`xtask/`** — workspace task runner; `cargo xtask e2e` is the manual Tier-3 test.
+- **`mc_bindgen/`** — tooling only, never linked into the shipped crates: downloads a version's client jar (`fetch`, system `curl`, SHA-1-checked, cached in `target/mc-cache/`), reads class files with `noak` (`classfile`), and reads/writes version dumps (`dump`).
+- **`xtask/`** — workspace task runner; `cargo xtask e2e` is the manual Tier-3 test, `cargo xtask mc-dump` writes the version dumps.
+- **`mc-data/`** (data, not a crate) — `classes.txt` lists every Minecraft class the client binds; `dumps/<version>.txt` holds, for each supported version, those classes and their supertypes with every non-synthetic field and method (name, descriptor, flags), sorted so the diff between two versions shows what changed.
 
 ## Injection & Hot-Reload Flow
 
@@ -87,13 +90,13 @@ Reflected classes and resolved class handles live in `DashMap`s (`classes`, `cla
 
 ## Supported versions
 
-`mc_versions::SUPPORTED_VERSIONS` lists the exact version ids DarkClient is verified on. Adding one means checking every member the client uses against that version (renames → `renames.rs` or a version gate) and testing it in game. No mapping files are involved: 26.x ships unobfuscated. The 26.x runtime requires JDK 25.
+`mc_versions::SUPPORTED_VERSIONS` lists the exact version ids DarkClient is verified on. Adding one: `cargo xtask mc-dump <id>`, diff its dump against the previous version's to see what changed in the bound classes, handle each change (renames → `renames.rs`, otherwise a version gate), add the id, and test it in game. A class the client starts binding goes into `mc-data/classes.txt` (then re-run `mc-dump --supported`). No mapping files are involved: 26.x ships unobfuscated. The 26.x runtime requires JDK 25.
 
 ## Tests
 
 Three tiers (`cargo test --workspace` runs T1 + T2):
 
-- **T1 — unit tests.** Fast, no JVM: `protocol` encode/decode, the injector's process-discovery filter, mapping signature/overload/parse helpers, version-id parsing, SDL scancode translation, pasted-color parsing, ESP projection and view-bobbing math.
+- **T1 — unit tests.** Fast, no JVM: `protocol` encode/decode, the injector's process-discovery filter, mapping signature/overload/parse helpers, version-id parsing, SDL scancode translation, pasted-color parsing, ESP projection and view-bobbing math, the dump text format and class-file extraction (a `javac`-compiled fixture; skipped without a JDK). An ignored test parses every class of a real jar: `MC_JAR=<client.jar> cargo test -p mc_bindgen -- --ignored`.
 - **T2 — JVM integration** (`client/src/mapping/jvm_test.rs`). Boots an in-process JVM via the `jni` `invocation` feature, with a small Java fixture (`client/tests/java/`, compiled by `javac` at test time) standing in for the game classes. Exercises the reflected mapping path and the `state::init()` menu↔in-world transition. Needs a JDK.
 - **T3 — end-to-end** (`cargo xtask e2e`). Builds the workspace, discovers a running Minecraft and injects into it; the overlay check is manual. Needs a running game and root; not run in CI.
 

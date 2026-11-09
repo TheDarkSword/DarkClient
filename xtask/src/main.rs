@@ -1,18 +1,23 @@
 //! Workspace developer tasks. Run via `cargo xtask <task>`.
 //!
 //! Tasks:
-//!   e2e   End-to-end harness — build everything and inject into a running
-//!         Minecraft. This is the manual Tier-3 test: it is not run in CI.
+//!   e2e      End-to-end harness — build everything and inject into a running
+//!            Minecraft. This is the manual Tier-3 test: it is not run in CI.
+//!   mc-dump  Write `mc-data/dumps/<version>.txt` from a version's client jar
+//!            (see `mc_dump.rs`).
+
+mod mc_dump;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 fn main() {
-    let task = std::env::args().nth(1);
-    let result = match task.as_deref() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = match args.first().map(String::as_str) {
         Some("e2e") => e2e(),
-        Some(other) => Err(format!("unknown task `{other}` (try: e2e)")),
-        None => Err("usage: cargo xtask <task>  (tasks: e2e)".to_string()),
+        Some("mc-dump") => mc_dump::run(&workspace_root(), &args[1..]),
+        Some(other) => Err(format!("unknown task `{other}` (try: e2e, mc-dump)")),
+        None => Err("usage: cargo xtask <task>  (tasks: e2e, mc-dump)".to_string()),
     };
     if let Err(message) = result {
         eprintln!("xtask: {message}");

@@ -184,6 +184,8 @@ DarkClient/
 ├── 📁 mapping_derive/       # proc-macro: #[derive(MappedObject)]
 ├── 📁 xtask/                # Workspace task runner (cargo xtask e2e)
 ├── 📁 mc_versions/          # Supported versions + version parsing
+├── 📁 mc_bindgen/           # Tooling: version dumps from the game jars
+├── 📁 mc-data/              # Bound class list + per-version dumps
 └── 📄 Cargo.toml            # Workspace configuration
 ```
 
