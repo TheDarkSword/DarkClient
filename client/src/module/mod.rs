@@ -61,6 +61,7 @@ pub enum ModuleId {
     Nuker,
     Scaffold,
     Freecam,
+    ArrayList,
 }
 
 impl ModuleId {
@@ -90,6 +91,7 @@ impl ModuleId {
             ModuleId::Nuker => "Nuker",
             ModuleId::Scaffold => "Scaffold",
             ModuleId::Freecam => "Freecam",
+            ModuleId::ArrayList => "ArrayList",
         }
     }
 }

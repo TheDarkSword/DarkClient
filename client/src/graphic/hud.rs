@@ -5,6 +5,7 @@
 
 use crate::graphic::anim::{self, Easing};
 use crate::graphic::theme;
+use crate::module::ModuleId;
 use egui::{
     Align2, Color32, Context, FontId, Id, LayerId, Order, Painter, Rect, Rounding, Stroke, Vec2,
 };
@@ -86,17 +87,30 @@ fn draw_arraylist(ctx: &Context, painter: &Painter) {
     const PAD_X: f32 = 8.0;
     let font = FontId::proportional(14.0);
 
-    // One lock per module: snapshot just the name and enabled flag.
-    let snapshot: Vec<(String, bool)> = crate::state::client()
+    // One lock per module: snapshot just the id, name and enabled flag.
+    let snapshot: Vec<(ModuleId, String, bool)> = crate::state::client()
         .modules
         .handles()
         .iter()
         .filter_map(|m| {
             let module = m.lock().ok()?;
             let data = module.get_module_data();
-            Some((data.name().to_string(), data.enabled))
+            Some((data.id, data.name().to_string(), data.enabled))
         })
         .collect();
+
+    // The list is itself a module the user can switch off, and never lists
+    // itself.
+    let shown = snapshot
+        .iter()
+        .any(|(id, _, enabled)| *id == ModuleId::ArrayList && *enabled);
+    if !shown {
+        return;
+    }
+    let snapshot = snapshot
+        .into_iter()
+        .filter(|(id, _, _)| *id != ModuleId::ArrayList)
+        .map(|(_, name, enabled)| (name, enabled));
 
     // Resolve a smooth presence factor for every module. Disabled modules
     // keep a slot while their factor decays toward zero.

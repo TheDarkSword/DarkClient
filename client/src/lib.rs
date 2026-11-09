@@ -33,6 +33,7 @@ use crate::module::player::autoarmor::AutoArmorModule;
 use crate::module::player::autototem::AutoTotemModule;
 use crate::module::player::cheststealer::ChestStealerModule;
 use crate::module::player::freecam::FreecamModule;
+use crate::module::render::arraylist::ArrayListModule;
 use crate::module::render::chest_esp::ChestEspModule;
 use crate::module::render::fullbright::FullbrightModule;
 use crate::module::render::mob_esp::MobEspModule;
@@ -148,4 +149,5 @@ fn register_modules() {
     modules.register(NukerModule::new());
     modules.register(ScaffoldModule::new());
     modules.register(FreecamModule::new());
+    modules.register(ArrayListModule::new());
 }
