@@ -1,11 +1,7 @@
-use crate::mapping::entity::mob::Mob;
-use crate::mapping::entity::player::{LocalPlayer, Player};
-use crate::mapping::entity::{Entity, EntityRef, LivingEntityRef, PlayerRef};
-use crate::mapping::MappedObject;
+use crate::game::prelude::*;
 use crate::module::combat::criticals::{self, CritState};
 use crate::module::combat::{look_at, pick_target};
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
-use crate::state::minecraft;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -133,7 +129,7 @@ impl BaseAura {
         if !cps_ready {
             return Ok(false);
         }
-        if self.respect_cooldown() && player.attack_strength_scale()? < 1.0 {
+        if self.respect_cooldown() && player.get_attack_strength_scale(0.5)? < 1.0 {
             return Ok(false);
         }
         Ok(true)
@@ -158,16 +154,16 @@ impl Module for BaseAura {
         }
         let (Some(player), Some(world), Some(game_mode)) = (
             minecraft.player()?,
-            minecraft.world()?,
+            minecraft.level()?,
             minecraft.game_mode()?,
         ) else {
             *self.state.lock().unwrap() = AuraState::default();
             return Ok(()); // not in a world — nothing to do
         };
 
-        let entities = world.get_entities()?;
+        let entities = world.entities_for_rendering()?;
         let eye = player.get_eye_position()?;
-        let self_id = player.id()?;
+        let self_id = player.get_id()?;
         let range = self.get_range() as f64;
 
         let locked = self.state.lock().unwrap().target;
@@ -193,7 +189,7 @@ impl Module for BaseAura {
             && criticals::prepare(&player)? == CritState::Ready
         {
             game_mode.attack(&player, &target)?;
-            player.swing()?;
+            player.swing(InteractionHand::MainHand)?;
             self.state.lock().unwrap().last_attack = Some(Instant::now());
         }
 

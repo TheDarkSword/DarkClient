@@ -167,6 +167,8 @@ fn resolving_a_missing_class_fails() {
 
 #[test]
 fn client_initializes_and_tracks_the_menu_and_world_states() {
+    use crate::game::screen::MinecraftExt;
+
     jvm();
     crate::state::init().expect("state::init must succeed against the fixture");
     let minecraft = crate::state::minecraft();
@@ -176,7 +178,7 @@ fn client_initializes_and_tracks_the_menu_and_world_states() {
         minecraft.player().unwrap().is_none(),
         "no player in the menu"
     );
-    assert!(minecraft.world().unwrap().is_none(), "no world in the menu");
+    assert!(minecraft.level().unwrap().is_none(), "no world in the menu");
     assert!(minecraft.game_mode().unwrap().is_none());
     assert!(!minecraft.in_world());
 
@@ -186,7 +188,7 @@ fn client_initializes_and_tracks_the_menu_and_world_states() {
         minecraft.player().unwrap().is_some(),
         "the player must be present once in a world",
     );
-    assert!(minecraft.world().unwrap().is_some());
+    assert!(minecraft.level().unwrap().is_some());
     assert!(minecraft.in_world());
 
     // Leave it again.
@@ -262,7 +264,6 @@ fn binding_targets_reach_methods_fields_and_constructors() {
     ));
 }
 
-/// A new fixture object of `class` (no-argument constructor) as a handle.
 fn new_object(class: &str) -> mc_bindings::Object {
     let mut env = jvm().attach_current_thread_as_daemon().unwrap();
     let local = env.new_object(class, "()V", &[]).unwrap();
@@ -282,7 +283,6 @@ fn generated_handles_follow_the_class_hierarchy() {
     let object = new_object("net/minecraft/client/player/LocalPlayer");
     assert!(object.cast::<Entity>().unwrap().is_some());
     let player: LocalPlayer = object.cast().unwrap().unwrap();
-    // Player and Entity members, through `Deref`.
     let abilities = player.get_abilities().unwrap();
     abilities.set_mayfly(true).unwrap();
     assert!(abilities.mayfly().unwrap());
@@ -305,7 +305,6 @@ fn generated_enums_values_and_collections_convert() {
         .cast()
         .unwrap()
         .unwrap();
-    // Enum arguments reach Java as the right constant.
     assert!(!entity
         .get_item_in_hand(InteractionHand::MainHand)
         .unwrap()
@@ -322,7 +321,6 @@ fn generated_enums_values_and_collections_convert() {
         InteractionHand::OffHand
     );
 
-    // Value classes are plain structs, both ways.
     assert_eq!(entity.position().unwrap(), Vec3::new(1.5, 64.0, -2.25));
     let object = Vec3::new(3.0, -1.0, 0.5).to_object().unwrap();
     assert_eq!(
@@ -331,7 +329,6 @@ fn generated_enums_values_and_collections_convert() {
     );
     assert!(Vec3::from_object(&constant).is_err());
 
-    // Collections become `Vec`s of checked handles.
     let level: ClientLevel = new_object("net/minecraft/client/multiplayer/ClientLevel")
         .cast()
         .unwrap()
@@ -354,8 +351,7 @@ fn final_fields_and_constants_are_read_once() {
     assert!(totem.is_same(&Items::totem_of_undying().unwrap()));
 }
 
-/// Cost of the generated calls — `cargo test -p client --release -- --ignored
-/// binding_call_cost --nocapture`.
+// cargo test -p client --release -- --ignored binding_call_cost --nocapture
 #[test]
 #[ignore]
 fn binding_call_cost() {

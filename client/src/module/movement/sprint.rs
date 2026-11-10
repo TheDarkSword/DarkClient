@@ -1,6 +1,5 @@
-use crate::mapping::entity::EntityRef;
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
-use crate::state::minecraft;
 
 /// Horizontal speed, in blocks/tick, above which the player counts as moving —
 /// just past the residual drift left after a stop.
@@ -57,7 +56,7 @@ impl Module for SprintModule {
         };
 
         let motion = player.get_delta_movement()?;
-        let horizontal = (motion.x() * motion.x() + motion.z() * motion.z()).sqrt();
+        let horizontal = (motion.x * motion.x + motion.z * motion.z).sqrt();
         if horizontal <= MOVING_THRESHOLD {
             return Ok(()); // standing still — leave the sprint state alone
         }
@@ -70,11 +69,11 @@ impl Module for SprintModule {
 
         if self.bhop() && player.on_ground()? {
             // Re-jump with the same forward boost a vanilla sprint-jump applies.
-            let yaw = player.get_yaw()?.to_radians();
+            let yaw = player.get_y_rot()?.to_radians();
             player.set_delta_movement(
-                motion.x() - (yaw.sin() as f64) * SPRINT_JUMP_BOOST,
+                motion.x - (yaw.sin() as f64) * SPRINT_JUMP_BOOST,
                 JUMP_VELOCITY,
-                motion.z() + (yaw.cos() as f64) * SPRINT_JUMP_BOOST,
+                motion.z + (yaw.cos() as f64) * SPRINT_JUMP_BOOST,
             )?;
         }
 

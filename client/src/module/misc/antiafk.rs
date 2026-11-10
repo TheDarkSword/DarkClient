@@ -1,6 +1,5 @@
-use crate::mapping::entity::EntityRef;
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
-use crate::state::minecraft;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -91,9 +90,9 @@ impl Module for AntiAfkModule {
             signed
         };
 
-        let yaw = player.get_yaw()?;
-        let pitch = player.get_pitch()?;
-        player.set_rotation(yaw + delta, pitch)
+        let yaw = player.get_y_rot()?;
+        let pitch = player.get_x_rot()?;
+        Ok(player.set_rotation(yaw + delta, pitch)?)
     }
 
     fn get_module_data(&self) -> &ModuleData {

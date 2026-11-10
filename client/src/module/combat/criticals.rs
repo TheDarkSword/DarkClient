@@ -5,8 +5,7 @@
 //! off the ground and the aura holds its hit until that window opens — see
 //! [`prepare`], which the auras call right before they attack.
 
-use crate::mapping::entity::player::LocalPlayer;
-use crate::mapping::entity::EntityRef;
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
 use crate::state::client;
 
@@ -48,12 +47,12 @@ pub fn prepare(player: &LocalPlayer) -> anyhow::Result<CritState> {
     if player.on_ground()? {
         // Hop straight up, keeping the current horizontal motion.
         let motion = player.get_delta_movement()?;
-        player.set_delta_movement(motion.x(), HOP_VELOCITY, motion.z())?;
+        player.set_delta_movement(motion.x, HOP_VELOCITY, motion.z)?;
         return Ok(CritState::Charging);
     }
     // Airborne: a hit only crits while descending — i.e. once fall distance
     // has begun to accumulate.
-    if player.get_fall_distance()? > 0.0 {
+    if player.fall_distance()? > 0.0 {
         Ok(CritState::Ready)
     } else {
         Ok(CritState::Charging)

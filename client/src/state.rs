@@ -16,7 +16,8 @@ use std::sync::OnceLock;
 use jni::JNIEnv;
 use thiserror::Error;
 
-use crate::mapping::client::minecraft::Minecraft;
+use mc_bindings::{Minecraft, Window};
+
 use crate::mapping::Mapping;
 use crate::module::registry::ModuleRegistry;
 
@@ -87,6 +88,11 @@ pub fn minecraft() -> &'static Minecraft {
     &client().minecraft
 }
 
+#[inline]
+pub fn window() -> &'static Window {
+    &client().window
+}
+
 /// Attaches the current thread to the JVM and returns a JNI environment.
 pub fn env() -> anyhow::Result<JNIEnv<'static>> {
     mapping().get_env()
@@ -95,21 +101,15 @@ pub fn env() -> anyhow::Result<JNIEnv<'static>> {
 /// Releases the JVM resources the global state holds — called from
 /// `cleanup_client` before the library is unloaded.
 ///
-/// The `MAPPING` / `CLIENT` statics are `OnceLock`s and are never dropped, so
-/// the handful of global references kept in plain fields (`Minecraft` and
-/// `Window`) outlive a hot-reload. Those point at session-lifetime singletons,
-/// so only a couple of global-ref table slots leak per reload; everything
-/// sizable — the class-handle cache, the game class loader, the cached player
-/// — is released here.
+/// The `Minecraft` and `Window` handles live in a `OnceLock` and are never
+/// dropped: a few global refs to session singletons leak per reload, nothing
+/// sizable.
 pub fn teardown() {
     // Remove the Netty pipeline handler first — leaving it in place would
     // crash the JVM once this library is unloaded. It can only exist once the
     // mapping does, and needs it.
     if MAPPING.get().is_some() {
         crate::net::teardown();
-    }
-    if let Some(client) = CLIENT.get() {
-        client.minecraft.teardown();
     }
     if let Some(mapping) = MAPPING.get() {
         mapping.teardown();
@@ -119,6 +119,7 @@ pub fn teardown() {
 /// The running game and module state.
 pub struct Client {
     minecraft: Minecraft,
+    window: Window,
     /// Every registered module.
     pub modules: ModuleRegistry,
 }
@@ -126,8 +127,11 @@ pub struct Client {
 impl Client {
     /// Builds the client. The [`MAPPING`] global must already be set.
     fn new() -> Result<Client, ClientError> {
+        let minecraft = Minecraft::get_instance().map_err(anyhow::Error::from)?;
+        let window = minecraft.get_window().map_err(anyhow::Error::from)?;
         Ok(Client {
-            minecraft: Minecraft::new()?,
+            minecraft,
+            window,
             modules: ModuleRegistry::new(),
         })
     }

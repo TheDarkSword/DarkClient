@@ -1,13 +1,11 @@
-use crate::mapping::inventory::{self, Inventory, Item};
-use crate::mapping::MappedObject;
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
-use crate::state::minecraft;
 
 /// Container id of the player's own inventory menu — always `0`.
 const INVENTORY_MENU_ID: i32 = 0;
 /// `Inventory` index of the off-hand. Doubles as the SWAP button code that
-/// targets the off-hand (see [`crate::mapping::client::gamemode`]).
-const OFFHAND_SLOT: i32 = Inventory::SLOT_OFFHAND;
+/// targets the off-hand.
+const OFFHAND_SLOT: i32 = SLOT_OFFHAND;
 /// `Inventory` indices scanned for a spare totem — hotbar + main storage.
 const STORAGE_SLOTS: i32 = 36;
 
@@ -56,7 +54,7 @@ impl Module for AutoTotemModule {
         }
 
         let inventory = player.get_inventory()?;
-        let totem = inventory::totem_of_undying()?;
+        let totem = Items::totem_of_undying()?;
 
         // Already holding a totem — nothing to do.
         if slot_holds(&inventory, OFFHAND_SLOT, &totem)? {
@@ -72,12 +70,14 @@ impl Module for AutoTotemModule {
         let Some(game_mode) = minecraft().game_mode()? else {
             return Ok(());
         };
-        game_mode.container_swap(
+        game_mode.handle_container_input(
             INVENTORY_MENU_ID,
-            Inventory::menu_slot(inventory_slot),
+            menu_slot(inventory_slot),
             OFFHAND_SLOT,
+            ContainerInput::Swap,
             &player,
-        )
+        )?;
+        Ok(())
     }
 
     fn get_module_data(&self) -> &ModuleData {

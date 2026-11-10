@@ -1,6 +1,5 @@
-use crate::mapping::entity::{EntityRef, LivingEntityRef};
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
-use crate::state::minecraft;
 
 /// Vanilla sprint speed, in blocks/tick (5.612 m/s ÷ 20) — the displacement
 /// produced at multiplier `1.0`.
@@ -72,7 +71,7 @@ impl Module for SpeedModule {
         }
 
         let motion = player.get_delta_movement()?;
-        let horizontal = (motion.x() * motion.x() + motion.z() * motion.z()).sqrt();
+        let horizontal = (motion.x * motion.x + motion.z * motion.z).sqrt();
         if horizontal <= EPSILON {
             return Ok(()); // just started moving — direction not settled yet
         }
@@ -85,7 +84,7 @@ impl Module for SpeedModule {
         }
 
         let scale = target / horizontal;
-        player.set_delta_movement(motion.x() * scale, motion.y(), motion.z() * scale)
+        Ok(player.set_delta_movement(motion.x * scale, motion.y, motion.z * scale)?)
     }
 
     fn get_module_data(&self) -> &ModuleData {

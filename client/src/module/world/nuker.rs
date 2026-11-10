@@ -1,9 +1,5 @@
-use crate::mapping::block::Direction;
-use crate::mapping::client::world::World;
-use crate::mapping::entity::EntityRef;
-use crate::mapping::math::BlockPos;
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
-use crate::state::minecraft;
 use std::sync::Mutex;
 
 /// Face reported while breaking — any face works, the block breaks regardless.
@@ -73,18 +69,18 @@ impl Module for NukerModule {
         }
         let (Some(player), Some(world), Some(game_mode)) = (
             minecraft.player()?,
-            minecraft.world()?,
+            minecraft.level()?,
             minecraft.game_mode()?,
         ) else {
             *self.target.lock().unwrap() = None;
             return Ok(());
         };
 
-        let feet = player.get_position()?;
+        let feet = player.position()?;
         let center = BlockPos::new(
-            feet.x().floor() as i32,
-            feet.y().floor() as i32,
-            feet.z().floor() as i32,
+            feet.x.floor() as i32,
+            feet.y.floor() as i32,
+            feet.z.floor() as i32,
         );
         let range = self.range();
 
@@ -94,7 +90,7 @@ impl Module for NukerModule {
         let mut target = self.target.lock().unwrap();
         let previous = *target;
         let chosen = match *target {
-            Some(pos) if in_range(pos, center, range) && !world.is_block_air(&pos)? => Some(pos),
+            Some(pos) if in_range(pos, center, range) && !world.is_block_air(pos)? => Some(pos),
             _ => nearest_block(&world, center, range)?,
         };
         *target = chosen;
@@ -105,12 +101,12 @@ impl Module for NukerModule {
             // `startDestroyBlock` must be sent only once: calling it every tick
             // resets the progress, so the block would never finish.
             Some(pos) if previous == Some(pos) => {
-                game_mode.continue_destroy_block(&pos, MINING_FACE)?;
+                game_mode.continue_destroy_block(pos, MINING_FACE)?;
             }
             // A new block — begin breaking it. `startDestroyBlock` also aborts
             // whatever block was being broken before.
             Some(pos) => {
-                game_mode.start_destroy_block(&pos, MINING_FACE)?;
+                game_mode.start_destroy_block(pos, MINING_FACE)?;
             }
             // Nothing left in range — abort any block still in progress so the
             // player is never seen mining a block they walked away from.
@@ -134,14 +130,18 @@ impl Module for NukerModule {
 
 /// Whether `pos` is within `range` blocks of `center`.
 fn in_range(pos: BlockPos, center: BlockPos, range: i32) -> bool {
-    let dx = pos.x() - center.x();
-    let dy = pos.y() - center.y();
-    let dz = pos.z() - center.z();
+    let dx = pos.x - center.x;
+    let dy = pos.y - center.y;
+    let dz = pos.z - center.z;
     dx * dx + dy * dy + dz * dz <= range * range
 }
 
 /// The nearest non-air block within `range` of `center`, if any.
-fn nearest_block(world: &World, center: BlockPos, range: i32) -> anyhow::Result<Option<BlockPos>> {
+fn nearest_block(
+    world: &ClientLevel,
+    center: BlockPos,
+    range: i32,
+) -> anyhow::Result<Option<BlockPos>> {
     let mut best: Option<(BlockPos, i32)> = None;
     let range_sq = range * range;
     for dx in -range..=range {
@@ -152,7 +152,7 @@ fn nearest_block(world: &World, center: BlockPos, range: i32) -> anyhow::Result<
                     continue;
                 }
                 let pos = center.offset(dx, dy, dz);
-                if world.is_block_air(&pos)? {
+                if world.is_block_air(pos)? {
                     continue;
                 }
                 if best.is_none_or(|(_, best_distance)| distance_sq < best_distance) {

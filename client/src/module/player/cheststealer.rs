@@ -1,5 +1,5 @@
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
-use crate::state::minecraft;
 
 /// Trailing menu slots that are the player's own inventory (27 storage + 9
 /// hotbar) — present on every standard container menu.
@@ -58,7 +58,14 @@ impl Module for ChestStealerModule {
                 let Some(game_mode) = minecraft().game_mode()? else {
                     return Ok(());
                 };
-                return game_mode.container_quick_move(container_id, slot as i32, &player);
+                game_mode.handle_container_input(
+                    container_id,
+                    slot as i32,
+                    0,
+                    ContainerInput::QuickMove,
+                    &player,
+                )?;
+                return Ok(());
             }
         }
         Ok(())

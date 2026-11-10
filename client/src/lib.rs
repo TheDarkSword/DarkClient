@@ -4,6 +4,7 @@
 
 extern crate jni;
 mod config;
+mod game;
 mod graphic;
 mod mapping;
 mod module;

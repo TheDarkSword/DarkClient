@@ -9,7 +9,8 @@
 mod glfw;
 mod sdl;
 
-use crate::state::{client, minecraft};
+use crate::game::prelude::*;
+use crate::state::client;
 use log::info;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -338,7 +339,7 @@ fn toggle_gui() {
 /// Toggles any module whose keybind matches `key`, when in-world.
 fn handle_module_keybind(key: i32) {
     let minecraft = minecraft();
-    if !minecraft.current_screen_is_null() || !minecraft.in_world() {
+    if minecraft.current_screen().is_open() || !minecraft.in_world() {
         return;
     }
 
@@ -376,7 +377,7 @@ fn handle_module_keybind(key: i32) {
 /// should be visible. Best-effort: a JNI failure resolves to "screen open",
 /// so the safer, recoverable outcome (a visible cursor) wins.
 fn minecraft_screen_open() -> bool {
-    !minecraft().current_screen_is_null()
+    minecraft().current_screen().is_open()
 }
 
 // --- Lifecycle -------------------------------------------------------------

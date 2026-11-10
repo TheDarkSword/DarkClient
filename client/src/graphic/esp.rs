@@ -13,23 +13,14 @@
 //!   where Minecraft renders it — and the projection replays Minecraft's view
 //!   bobbing and damage tilt, so boxes stay on the model while the entity or
 //!   the player moves.
-//! * Every JNI scope is wrapped in a local-reference frame: without this the
-//!   JVM local-ref table grows unbounded, which is itself a slow FPS killer.
 //!
 //! The chest scan is heavier (it walks loaded chunks) so it runs even rarer,
 //! every [`CHEST_SCAN_INTERVAL`].
 
-use crate::mapping::client::camera::Camera;
-use crate::mapping::client::delta_tracker::DeltaTracker;
-use crate::mapping::client::game_renderer::{CameraBob, GameRenderer};
-use crate::mapping::client::world::World;
-use crate::mapping::entity::mob::Mob;
-use crate::mapping::entity::player::Player;
-use crate::mapping::entity::{Entity, EntityRef, LivingEntityRef};
-use crate::mapping::math::Vec3;
-use crate::mapping::MappedObject;
+use crate::game::prelude::*;
+use crate::game::render::{camera_bob, CameraBob};
 use crate::module::{ModuleId, ModuleSetting};
-use crate::state::{client, minecraft};
+use crate::state::client;
 use egui::{
     pos2, vec2, Align2, Color32, Context, FontId, Id, LayerId, Order, Painter, Pos2, Rect,
     Rounding, Stroke,
@@ -94,9 +85,9 @@ impl V3 {
 impl From<Vec3> for V3 {
     fn from(v: Vec3) -> V3 {
         V3 {
-            x: v.x(),
-            y: v.y(),
-            z: v.z(),
+            x: v.x,
+            y: v.y,
+            z: v.z,
         }
     }
 }
@@ -606,13 +597,13 @@ fn read_partial_tick(state: &mut EspState) -> f64 {
         return 1.0;
     }
     if state.delta_tracker.is_none() {
-        state.delta_tracker = minecraft().delta_tracker().ok();
+        state.delta_tracker = minecraft().get_delta_tracker().ok();
     }
     let read = state
         .delta_tracker
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("no DeltaTracker"))
-        .and_then(DeltaTracker::partial_tick);
+        .and_then(|tracker| Ok(tracker.get_game_time_delta_partial_tick(true)?));
     match read {
         Ok(t) if t.is_finite() => (t as f64).clamp(0.0, 1.0),
         Ok(_) => 1.0,
@@ -632,7 +623,7 @@ fn read_bob(state: &mut EspState) -> Affine {
     let Some(renderer) = state.renderer.as_ref() else {
         return Affine::IDENTITY;
     };
-    match renderer.camera_bob() {
+    match camera_bob(renderer) {
         Ok(bob) => bob_transform(&bob),
         Err(e) => {
             state.bob_unavailable = true;
@@ -649,7 +640,7 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
     if state.camera.is_none() {
         let resolved = minecraft()
             .game_renderer()
-            .and_then(|renderer| Ok((renderer.get_main_camera()?, renderer)));
+            .and_then(|renderer| Ok((renderer.main_camera()?, renderer)));
         match resolved {
             Ok((camera, renderer)) => {
                 state.camera = Some(camera);
@@ -672,7 +663,7 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
     }
 
     let read = (|| -> anyhow::Result<(V3, f32, f32)> {
-        Ok((camera.position()?.into(), camera.yaw()?, camera.pitch()?))
+        Ok((camera.position()?.into(), camera.y_rot()?, camera.x_rot()?))
     })();
 
     let (cam_pos, yaw, pitch) = match read {
@@ -769,15 +760,15 @@ fn gather_entities(
     want_mob: bool,
 ) -> anyhow::Result<Vec<EntityTarget>> {
     let mc = minecraft();
-    let (Some(world), Some(player)) = (mc.world()?, mc.player()?) else {
+    let (Some(world), Some(player)) = (mc.level()?, mc.player()?) else {
         return Ok(Vec::new());
     };
 
-    let local_id = player.id()?;
-    let player_pos: V3 = player.get_position()?.into();
+    let local_id = player.get_id()?;
+    let player_pos: V3 = player.position()?.into();
 
     let mut out: Vec<EntityTarget> = Vec::new();
-    for entity in world.get_entities()? {
+    for entity in world.entities_for_rendering()? {
         if let Some(target) = process_entity(
             &entity,
             local_id,
@@ -820,15 +811,15 @@ fn process_entity(
         return None;
     };
 
-    let id = entity.id().ok()?;
+    let id = entity.get_id().ok()?;
     if id == local_id {
         return None;
     }
 
-    let pos: V3 = entity.get_position().ok()?.into();
-    let old = entity.get_old_position().map(V3::from).unwrap_or(pos);
-    let width = entity.bb_width().ok()? as f64;
-    let height = entity.bb_height().ok()? as f64;
+    let pos: V3 = entity.position().ok()?.into();
+    let old = entity.old_position().map(V3::from).unwrap_or(pos);
+    let width = entity.get_bb_width().ok()? as f64;
+    let height = entity.get_bb_height().ok()? as f64;
 
     let name = read_name(entity);
     let (health, max_health) = read_health(entity).unwrap_or((0.0, 0.0));
@@ -867,11 +858,11 @@ fn read_health(entity: &Entity) -> Option<(f32, f32)> {
 /// Scans loaded chunks around the player for container block entities.
 fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
     let mc = minecraft();
-    let (Some(world), Some(player)) = (mc.world()?, mc.player()?) else {
+    let (Some(world), Some(player)) = (mc.level()?, mc.player()?) else {
         return Ok(Vec::new());
     };
 
-    let player_pos: V3 = player.get_position()?.into();
+    let player_pos: V3 = player.position()?.into();
     let pcx = (player_pos.x / 16.0).floor() as i32;
     let pcz = (player_pos.z / 16.0).floor() as i32;
 
@@ -886,7 +877,12 @@ fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
 }
 
 /// Adds every container block entity of one chunk to `out`.
-fn scan_chunk(world: &World, cx: i32, cz: i32, out: &mut Vec<ChestTarget>) -> anyhow::Result<()> {
+fn scan_chunk(
+    world: &ClientLevel,
+    cx: i32,
+    cz: i32,
+    out: &mut Vec<ChestTarget>,
+) -> anyhow::Result<()> {
     let Some(chunk) = world.get_chunk(cx, cz)? else {
         return Ok(());
     };
@@ -898,9 +894,9 @@ fn scan_chunk(world: &World, cx: i32, cz: i32, out: &mut Vec<ChestTarget>) -> an
         if let Ok(pos) = block_entity.get_block_pos() {
             out.push(ChestTarget {
                 pos: V3 {
-                    x: pos.x() as f64,
-                    y: pos.y() as f64,
-                    z: pos.z() as f64,
+                    x: pos.x as f64,
+                    y: pos.y as f64,
+                    z: pos.z as f64,
                 },
             });
         }

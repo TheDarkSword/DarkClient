@@ -1,7 +1,6 @@
-use crate::mapping::entity::EntityRef;
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 use crate::net::packet::{Packet, PacketAction};
-use crate::state::minecraft;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// Network-id sentinel meaning "the local player's id is not known yet".
@@ -74,7 +73,7 @@ impl Module for VelocityModule {
     fn on_tick(&self) -> anyhow::Result<()> {
         // Refresh the cached player id; `handle_packet` reads it cross-thread.
         let id = match minecraft().player()? {
-            Some(player) => player.id()?,
+            Some(player) => player.get_id()?,
             None => UNKNOWN_ID,
         };
         self.local_id.store(id, Ordering::Relaxed);
@@ -86,14 +85,14 @@ impl Module for VelocityModule {
             return PacketAction::Forward;
         };
         // Only neuter knockback aimed at the local player.
-        if motion.entity_id != self.local_id.load(Ordering::Relaxed) {
+        if motion.id != self.local_id.load(Ordering::Relaxed) {
             return PacketAction::Forward;
         }
         let horizontal = self.factor("Horizontal");
         let vertical = self.factor("Vertical");
-        motion.x *= horizontal;
-        motion.y *= vertical;
-        motion.z *= horizontal;
+        motion.movement.x *= horizontal;
+        motion.movement.y *= vertical;
+        motion.movement.z *= horizontal;
         PacketAction::Forward
     }
 

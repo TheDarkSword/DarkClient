@@ -1,8 +1,5 @@
-use crate::mapping::block::Direction;
-use crate::mapping::entity::EntityRef;
-use crate::mapping::math::{BlockPos, Vec3};
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
-use crate::state::minecraft;
 
 /// Horizontal speed below which the player counts as standing still.
 const MOVING_THRESHOLD: f64 = 0.01;
@@ -47,34 +44,34 @@ impl Module for ScaffoldModule {
         }
         let (Some(player), Some(world), Some(game_mode)) = (
             minecraft.player()?,
-            minecraft.world()?,
+            minecraft.level()?,
             minecraft.game_mode()?,
         ) else {
             return Ok(());
         };
 
-        let feet = player.get_position()?;
+        let feet = player.position()?;
         let support = BlockPos::new(
-            feet.x().floor() as i32,
-            feet.y().round() as i32 - 1,
-            feet.z().floor() as i32,
+            feet.x.floor() as i32,
+            feet.y.round() as i32 - 1,
+            feet.z.floor() as i32,
         );
 
         // The block to place: the support under the feet if it has gone
         // missing, otherwise the next block ahead in the movement direction —
         // placed *before* the player reaches it, so the bridge is always ready.
-        let target = if world.is_block_air(&support)? {
+        let target = if world.is_block_air(support)? {
             support
         } else {
             let motion = player.get_delta_movement()?;
-            let Some((dx, dz)) = dominant_step(motion.x(), motion.z()) else {
+            let Some((dx, dz)) = dominant_step(motion.x, motion.z) else {
                 return Ok(()); // standing still and supported — nothing to do
             };
             support.offset(dx, 0, dz)
         };
 
         // Already a block there — nothing to place.
-        if !world.is_block_air(&target)? {
+        if !world.is_block_air(target)? {
             return Ok(());
         }
 
@@ -82,13 +79,14 @@ impl Module for ScaffoldModule {
         for direction in Direction::ALL {
             let (dx, dy, dz) = direction.offset();
             let anchor = target.offset(dx, dy, dz);
-            if world.is_block_air(&anchor)? {
+            if world.is_block_air(anchor)? {
                 continue; // need a solid block to place against
             }
             // The anchor face pointing back at the target is where the new
             // block attaches.
             let face = direction.opposite();
-            return game_mode.place_block_on(&player, &anchor, face, face_center(anchor, face));
+            game_mode.place_block_on(&player, anchor, face, face_center(anchor, face))?;
+            return Ok(());
         }
         Ok(())
     }
@@ -119,8 +117,8 @@ fn dominant_step(vx: f64, vz: f64) -> Option<(i32, i32)> {
 fn face_center(anchor: BlockPos, face: Direction) -> Vec3 {
     let (fx, fy, fz) = face.offset();
     Vec3::new(
-        anchor.x() as f64 + 0.5 + fx as f64 * 0.5,
-        anchor.y() as f64 + 0.5 + fy as f64 * 0.5,
-        anchor.z() as f64 + 0.5 + fz as f64 * 0.5,
+        anchor.x as f64 + 0.5 + fx as f64 * 0.5,
+        anchor.y as f64 + 0.5 + fy as f64 * 0.5,
+        anchor.z as f64 + 0.5 + fz as f64 * 0.5,
     )
 }

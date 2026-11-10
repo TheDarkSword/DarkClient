@@ -6,9 +6,7 @@
 //! exponential smoothing — frame-rate independent — is what makes the motion
 //! fluid, instead of the visible 20 Hz jumps of a per-tick approach.
 
-use crate::mapping::entity::EntityRef;
-use crate::mapping::math::Vec3;
-use crate::state::minecraft;
+use crate::game::prelude::*;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -33,9 +31,9 @@ impl Rotation {
 
     /// The rotation that looks from `from` to `to`.
     pub fn towards(from: Vec3, to: Vec3) -> Rotation {
-        let dx = to.x() - from.x();
-        let dy = to.y() - from.y();
-        let dz = to.z() - from.z();
+        let dx = to.x - from.x;
+        let dy = to.y - from.y;
+        let dz = to.z - from.z;
         let ground = (dx * dx + dz * dz).sqrt();
         Rotation {
             yaw: wrap_degrees((dz.atan2(dx).to_degrees() - 90.0) as f32),
@@ -152,10 +150,10 @@ fn ease_camera(target: Target, dt: f32) -> anyhow::Result<()> {
     let Some(player) = minecraft().player()? else {
         return Ok(());
     };
-    let current = Rotation::new(player.get_yaw()?, player.get_pitch()?);
+    let current = Rotation::new(player.get_y_rot()?, player.get_x_rot()?);
     // Exponential smoothing — frame-rate independent, eased by construction.
     let alpha = 1.0 - (-target.speed * dt).exp();
     let next = current.lerp_towards(target.rotation, alpha);
 
-    player.set_rotation(next.yaw, next.pitch)
+    Ok(player.set_rotation(next.yaw, next.pitch)?)
 }

@@ -1,6 +1,5 @@
-use crate::mapping::entity::{EntityRef, LivingEntityRef};
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
-use crate::state::minecraft;
 
 /// `UseEffects.DEFAULT.speedMultiplier` (`UseEffects.java`) — the factor the
 /// item-use slowdown scales movement input by.
@@ -74,7 +73,7 @@ impl Module for NoSlowdownModule {
         // `getInputVector`'s formula: scale the local input by the ground
         // speed, then rotate it by the player's yaw into world space.
         let speed = player.get_speed()? as f64 * GROUND_SPEED_FACTOR;
-        let (sin, cos) = (player.get_yaw()? as f64).to_radians().sin_cos();
+        let (sin, cos) = (player.get_y_rot()? as f64).to_radians().sin_cos();
         let local_x = strafe as f64 * speed;
         let local_z = forward as f64 * speed;
         let accel_x = local_x * cos - local_z * sin;
@@ -82,11 +81,11 @@ impl Module for NoSlowdownModule {
 
         // Add the missing acceleration so the player moves as if un-slowed.
         let motion = player.get_delta_movement()?;
-        player.set_delta_movement(
-            motion.x() + accel_x * COMPENSATION,
-            motion.y(),
-            motion.z() + accel_z * COMPENSATION,
-        )
+        Ok(player.set_delta_movement(
+            motion.x + accel_x * COMPENSATION,
+            motion.y,
+            motion.z + accel_z * COMPENSATION,
+        )?)
     }
 
     fn get_module_data(&self) -> &ModuleData {

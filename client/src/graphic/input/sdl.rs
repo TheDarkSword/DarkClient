@@ -325,7 +325,7 @@ pub(super) fn install(api: &'static SdlApi) -> bool {
     if HOOKS.get().is_some() {
         return true;
     }
-    let window = match crate::state::minecraft().window.get_window() {
+    let window = match crate::state::window().handle() {
         Ok(handle) if handle != 0 => handle as *mut c_void,
         Ok(_) => return false,
         Err(e) => {

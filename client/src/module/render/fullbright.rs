@@ -1,5 +1,5 @@
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
-use crate::state::minecraft;
 use std::sync::Mutex;
 
 /// Brightness forced onto the gamma option while Fullbright is active — far

@@ -6,9 +6,7 @@ pub mod mobaura;
 pub mod rotation;
 pub mod velocity;
 
-use crate::mapping::entity::player::LocalPlayer;
-use crate::mapping::entity::{Entity, EntityRef};
-use crate::mapping::math::Vec3;
+use crate::game::prelude::*;
 use rotation::Rotation;
 
 /// Aims the camera at `target` — eased, through the shared rotation controller
@@ -22,13 +20,13 @@ pub fn look_at(
     max_fov: f32,
 ) -> anyhow::Result<f32> {
     let eye = player.get_eye_position()?;
-    let feet = target.get_position()?;
-    let height = target.bb_height()? as f64;
+    let feet = target.position()?;
+    let height = target.get_bb_height()? as f64;
     // Aim at the upper body — reliable hit registration, natural-looking.
-    let aim = Vec3::new(feet.x(), feet.y() + height * 0.7, feet.z());
+    let aim = Vec3::new(feet.x, feet.y + height * 0.7, feet.z);
     let target_rotation = Rotation::towards(eye, aim);
 
-    let current = Rotation::new(player.get_yaw()?, player.get_pitch()?);
+    let current = Rotation::new(player.get_y_rot()?, player.get_x_rot()?);
     let angle = current.angle_to(target_rotation);
     if angle <= max_fov {
         rotation::aim(target_rotation, speed);
@@ -50,14 +48,14 @@ pub fn pick_target(
 ) -> Option<(i32, Entity)> {
     let mut candidates: Vec<(i32, Entity, f64)> = Vec::new();
     for entity in entities {
-        let distance = match entity.distance_to_sqr(eye.x(), eye.y(), eye.z()) {
+        let distance = match entity.distance_to_sqr(eye.x, eye.y, eye.z) {
             Ok(distance) if distance <= range_sq => distance,
             _ => continue,
         };
         if !accept(entity) {
             continue;
         }
-        let Ok(id) = entity.id() else {
+        let Ok(id) = entity.get_id() else {
             continue;
         };
         if id == exclude_id {

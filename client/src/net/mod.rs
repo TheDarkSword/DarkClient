@@ -10,18 +10,16 @@
 //! offered to every enabled module's `handle_packet`, and — if a module
 //! changed it — rebuilt into a fresh JVM object that replaces the original.
 //!
-//! All JNI here uses explicit descriptors: the navigated classes are Netty
-//! (overload-heavy) and the targets are unobfuscated Minecraft 26.1+, so going
-//! through the reflecting `Mapping` layer would be both wasteful and ambiguous.
+//! Only defining the handler class and binding its natives is raw JNI.
 
 pub mod packet;
 
-use crate::mapping::MappedObject;
 use crate::net::packet::{Packet, PacketAction};
 use crate::state::{mapping, minecraft};
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::jobject;
 use jni::{JNIEnv, NativeMethod};
+use mc_bindings::{ChannelPipeline, Connection, Object};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
@@ -32,15 +30,6 @@ const HANDLER_BYTECODE: &[u8] = include_bytes!("../../java/DarkChannelHandler.cl
 const HANDLER_CLASS: &str = "DarkChannelHandler";
 /// Name of our entry in Minecraft's Netty pipeline.
 const PIPELINE_NAME: &str = "dark_handler";
-
-// JNI descriptors for the methods/fields this module touches.
-const SIG_GET_CLIENT_LISTENER: &str = "()Lnet/minecraft/client/multiplayer/ClientPacketListener;";
-const SIG_GET_CONNECTION: &str = "()Lnet/minecraft/network/Connection;";
-const SIG_CHANNEL_FIELD: &str = "Lio/netty/channel/Channel;";
-const SIG_PIPELINE: &str = "()Lio/netty/channel/ChannelPipeline;";
-const SIG_PIPELINE_GET: &str = "(Ljava/lang/String;)Lio/netty/channel/ChannelHandler;";
-const SIG_PIPELINE_REMOVE: &str = "(Ljava/lang/String;)Lio/netty/channel/ChannelHandler;";
-const SIG_PIPELINE_ADD_BEFORE: &str = "(Ljava/lang/String;Ljava/lang/String;Lio/netty/channel/ChannelHandler;)Lio/netty/channel/ChannelPipeline;";
 
 /// Minecraft's own pipeline entry (`Connection`). Our handler must sit *before*
 /// it: inbound packets flow head→tail, so to see — and rewrite — a packet
@@ -55,7 +44,7 @@ struct NetState {
     /// The `DarkChannelHandler` class, once defined and bound.
     handler_class: Option<GlobalRef>,
     /// The `Connection` our handler is currently installed on.
-    installed_on: Option<GlobalRef>,
+    installed_on: Option<Connection>,
     /// Consecutive class-definition failures — capped by `MAX_DEFINE_ATTEMPTS`.
     define_attempts: u32,
 }
@@ -114,10 +103,8 @@ fn ensure_installed_inner() -> anyhow::Result<()> {
         }
     }
 
-    let mut env = mapping().get_env()?;
-
     // Find the live server connection.
-    let Some(connection) = current_connection(&mut env)? else {
+    let Some(connection) = current_connection()? else {
         STATE.lock().unwrap().installed_on = None;
         return Ok(());
     };
@@ -126,13 +113,13 @@ fn ensure_installed_inner() -> anyhow::Result<()> {
     {
         let state = STATE.lock().unwrap();
         if let Some(previous) = &state.installed_on {
-            if env.is_same_object(previous, &connection)? {
+            if previous.is_same(&connection) {
                 return Ok(());
             }
         }
     }
 
-    install_on(&mut env, &connection)?;
+    install_on(&connection)?;
     // `replace` returns the previous connection, if any — a `Some` means this
     // is a *re*-install onto a fresh connection (a server change / reconnect),
     // not the first install, so the log says which.
@@ -239,34 +226,15 @@ fn describe_jni_error(env: &mut JNIEnv, what: &str, error: jni::errors::Error) -
     anyhow::anyhow!("{what} failed: {error}")
 }
 
-/// `minecraft.getConnection().getConnection()` — the live `Connection`, if any.
-fn current_connection(env: &mut JNIEnv) -> anyhow::Result<Option<GlobalRef>> {
-    env.with_local_frame(8, |env| -> anyhow::Result<Option<GlobalRef>> {
-        let listener = env
-            .call_method(
-                minecraft().jni_ref().as_obj(),
-                "getConnection",
-                SIG_GET_CLIENT_LISTENER,
-                &[],
-            )?
-            .l()?;
-        if listener.is_null() {
-            return Ok(None);
-        }
-        let connection = env
-            .call_method(&listener, "getConnection", SIG_GET_CONNECTION, &[])?
-            .l()?;
-        if connection.is_null() {
-            return Ok(None);
-        }
-        Ok(Some(env.new_global_ref(connection)?))
+fn current_connection() -> anyhow::Result<Option<Connection>> {
+    Ok(match minecraft().get_connection()? {
+        Some(listener) => Some(listener.get_connection()?),
+        None => None,
     })
 }
 
-/// Inserts our handler into `connection`'s Netty pipeline, just before
-/// Minecraft's own `packet_handler` — so it sees both inbound and outbound
-/// packets before the game does.
-fn install_on(env: &mut JNIEnv, connection: &GlobalRef) -> anyhow::Result<()> {
+/// Goes before Minecraft's `packet_handler`, so we see every packet first.
+fn install_on(connection: &Connection) -> anyhow::Result<()> {
     let handler_class = STATE
         .lock()
         .unwrap()
@@ -274,38 +242,24 @@ fn install_on(env: &mut JNIEnv, connection: &GlobalRef) -> anyhow::Result<()> {
         .clone()
         .ok_or_else(|| anyhow::anyhow!("handler class missing"))?;
 
-    env.with_local_frame(16, |env| -> anyhow::Result<()> {
-        let pipeline = pipeline_of(env, connection)?;
-        let name: JObject = env.new_string(PIPELINE_NAME)?.into();
-
-        // Idempotent: skip if our handler is already on this pipeline.
-        let existing = env
-            .call_method(&pipeline, "get", SIG_PIPELINE_GET, &[JValue::Object(&name)])?
-            .l()?;
-        if !existing.is_null() {
-            return Ok(());
-        }
-
-        let class = JClass::from(env.new_local_ref(handler_class.as_obj())?);
-        let handler = env.new_object(&class, "()V", &[])?;
-        let base: JObject = env.new_string(MC_PACKET_HANDLER)?.into();
-        env.call_method(
-            &pipeline,
-            "addBefore",
-            SIG_PIPELINE_ADD_BEFORE,
-            &[
-                JValue::Object(&base),
-                JValue::Object(&name),
-                JValue::Object(&handler),
-            ],
-        )?;
-        Ok(())
-    })
+    let pipeline = pipeline_of(connection)?;
+    if pipeline.get(PIPELINE_NAME)?.is_some() {
+        return Ok(());
+    }
+    let handler = {
+        let mut env = mapping().get_env()?;
+        env.with_local_frame(4, |env| -> anyhow::Result<Object> {
+            let class = JClass::from(env.new_local_ref(handler_class.as_obj())?);
+            let handler = env.new_object(&class, "()V", &[])?;
+            Object::from_local(&handler)?.ok_or_else(|| anyhow::anyhow!("null handler"))
+        })?
+    };
+    pipeline.add_before(MC_PACKET_HANDLER, PIPELINE_NAME, &handler)?;
+    Ok(())
 }
 
-/// Releases everything before the library is unloaded — called from
-/// `cleanup_client`. Leaving the handler on the pipeline would crash the JVM
-/// (its native methods would point at unmapped memory).
+/// Must run before unload: a handler left on the pipeline would call into
+/// unmapped code.
 pub fn teardown() {
     let (connection, class) = {
         let mut state = STATE.lock().unwrap();
@@ -314,24 +268,16 @@ pub fn teardown() {
         (state.installed_on.take(), state.handler_class.take())
     };
 
-    if let (Some(connection), Ok(mut env)) = (connection, mapping().get_env()) {
-        env.with_local_frame(16, |env| -> anyhow::Result<()> {
-            let pipeline = pipeline_of(env, &connection)?;
-            let name: JObject = env.new_string(PIPELINE_NAME)?.into();
-            let existing = env
-                .call_method(&pipeline, "get", SIG_PIPELINE_GET, &[JValue::Object(&name)])?
-                .l()?;
-            if !existing.is_null() {
-                env.call_method(
-                    &pipeline,
-                    "remove",
-                    SIG_PIPELINE_REMOVE,
-                    &[JValue::Object(&name)],
-                )?;
+    if let Some(connection) = connection {
+        let removed = pipeline_of(&connection).and_then(|pipeline| {
+            if pipeline.get(PIPELINE_NAME)?.is_some() {
+                pipeline.remove(PIPELINE_NAME)?;
             }
             Ok(())
-        })
-        .unwrap_or_else(|error| log::debug!("net: pipeline cleanup failed: {error}"));
+        });
+        if let Err(error) = removed {
+            log::debug!("net: pipeline cleanup failed: {error}");
+        }
     }
 
     if let Some(class) = class {
@@ -344,18 +290,8 @@ pub fn teardown() {
     clear_pending_exception();
 }
 
-/// `connection.channel.pipeline()` — the Netty pipeline of a `Connection`.
-/// Must be called inside an existing local-reference frame.
-fn pipeline_of<'a>(env: &mut JNIEnv<'a>, connection: &GlobalRef) -> anyhow::Result<JObject<'a>> {
-    let channel = env
-        .get_field(connection.as_obj(), "channel", SIG_CHANNEL_FIELD)?
-        .l()?;
-    if channel.is_null() {
-        return Err(anyhow::anyhow!("connection has no channel"));
-    }
-    Ok(env
-        .call_method(&channel, "pipeline", SIG_PIPELINE, &[])?
-        .l()?)
+fn pipeline_of(connection: &Connection) -> anyhow::Result<ChannelPipeline> {
+    Ok(connection.channel()?.pipeline()?)
 }
 
 // --- packet dispatch -------------------------------------------------------
@@ -416,13 +352,13 @@ unsafe fn dispatch(
     if packet.is_null() {
         return Ok(Dispatch::Forward);
     }
-    let mut env = unsafe { JNIEnv::from_raw(env)? };
+    let env = unsafe { JNIEnv::from_raw(env)? };
     let packet_obj = unsafe { JObject::from_raw(packet) };
 
     let built = if inbound {
-        Packet::from_inbound(&mut env, &packet_obj)?
+        Packet::from_inbound(&packet_obj)?
     } else {
-        Packet::from_outbound(&mut env, &packet_obj)?
+        Packet::from_outbound(&packet_obj)?
     };
     let Some(mut wrapped) = built else {
         return Ok(Dispatch::Forward);
@@ -432,7 +368,10 @@ unsafe fn dispatch(
     match crate::state::client().modules.handle_packet(&mut wrapped) {
         PacketAction::Cancel => Ok(Dispatch::Drop),
         PacketAction::Forward if wrapped != original => {
-            Ok(Dispatch::Replace(wrapped.to_java(&mut env)?))
+            let replacement = wrapped.to_object()?;
+            Ok(Dispatch::Replace(
+                env.new_local_ref(replacement.as_obj())?.into_raw(),
+            ))
         }
         PacketAction::Forward => Ok(Dispatch::Forward),
     }

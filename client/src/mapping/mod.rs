@@ -6,21 +6,12 @@ use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValu
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::jvalue;
 use jni::JNIEnv;
-pub use mapping_derive::MappedObject;
 pub use mc_runtime::{Cx, Runtime};
 pub use mc_versions::MinecraftVersion;
 use std::sync::Arc;
 
-pub mod block;
-pub mod block_entity;
 pub mod class;
 pub mod class_type;
-pub mod client;
-pub mod component;
-pub mod entity;
-pub mod inventory;
-pub mod java;
-pub mod math;
 pub mod object;
 mod reflect;
 mod renames;

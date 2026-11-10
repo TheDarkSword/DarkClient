@@ -1,5 +1,5 @@
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
-use crate::state::minecraft;
 
 /// Vanilla creative-fly speed — restored when Fly is turned off.
 const VANILLA_FLY_SPEED: f32 = 0.05;
@@ -40,31 +40,29 @@ impl FlyModule {
     }
 }
 
+fn set_flight(enabled: bool, speed: f32) -> anyhow::Result<()> {
+    if let Some(player) = minecraft().player()? {
+        let abilities = player.get_abilities()?;
+        abilities.set_flying(enabled)?;
+        abilities.set_mayfly(enabled)?;
+        abilities.set_flying_speed(speed)?;
+    }
+    Ok(())
+}
+
 impl Module for FlyModule {
     fn on_start(&self) -> anyhow::Result<()> {
-        if let Some(player) = minecraft().player()? {
-            player.abilities.fly(true)?;
-            player.abilities.set_flying_speed(self.fly_speed())?;
-        }
-        Ok(())
+        set_flight(true, self.fly_speed())
     }
 
     fn on_stop(&self) -> anyhow::Result<()> {
-        if let Some(player) = minecraft().player()? {
-            player.abilities.fly(false)?;
-            player.abilities.set_flying_speed(VANILLA_FLY_SPEED)?;
-        }
-        Ok(())
+        set_flight(false, VANILLA_FLY_SPEED)
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {
         // Re-assert each tick so a server-sent abilities update cannot quietly
         // disable flight or reset the speed.
-        if let Some(player) = minecraft().player()? {
-            player.abilities.fly(true)?;
-            player.abilities.set_flying_speed(self.fly_speed())?;
-        }
-        Ok(())
+        set_flight(true, self.fly_speed())
     }
 
     fn get_module_data(&self) -> &ModuleData {

@@ -147,6 +147,13 @@ pub fn gather_egui_inputs(
 
 /// Fills the empty `Paste` placeholders the input backend queued for Ctrl+V
 /// with the clipboard text, read here on the render thread.
+/// Through Minecraft, so it works on GLFW and SDL alike.
+fn read_clipboard() -> mc_bindings::Result<String> {
+    crate::state::minecraft()
+        .keyboard_handler()?
+        .get_clipboard()
+}
+
 /// A whole color pasted while a color picker is open goes to that picker
 /// instead of into one of its fields.
 fn fill_pastes(events: &mut Vec<egui::Event>) {
@@ -157,7 +164,7 @@ fn fill_pastes(events: &mut Vec<egui::Event>) {
         };
         if text.is_empty() {
             *text = clipboard
-                .get_or_insert_with(|| crate::state::minecraft().clipboard().unwrap_or_default())
+                .get_or_insert_with(|| read_clipboard().unwrap_or_default())
                 .clone();
         }
         !text.is_empty() && !crate::graphic::menu::offer_color_paste(text)
@@ -181,7 +188,10 @@ pub fn run_frame(screen_width: f32, screen_height: f32) -> EguiFrame {
     // button, Ctrl+C in a text field); putting it on the clipboard is ours.
     let copied = &full_output.platform_output.copied_text;
     if !copied.is_empty() {
-        if let Err(e) = crate::state::minecraft().set_clipboard(copied) {
+        let set = crate::state::minecraft()
+            .keyboard_handler()
+            .and_then(|keyboard| keyboard.set_clipboard(copied));
+        if let Err(e) = set {
             log::warn!("Could not set the clipboard: {e}");
         }
     }

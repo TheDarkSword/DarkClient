@@ -1,19 +1,10 @@
-//! Rust value-snapshot of `ServerboundMovePlayerPacket`.
-//!
-//! The packet is an abstract class with four subclasses — `Pos`, `PosRot`,
-//! `Rot`, `StatusOnly` — chosen by which of position / rotation it carries.
-//! `read` snapshots any of them; `to_java` rebuilds the matching subclass.
+//! The packet is abstract: `Pos`, `PosRot`, `Rot` or `StatusOnly`, depending on
+//! what it carries, so it's rebuilt as the matching subclass.
 
-use crate::mapping::MinecraftClassType;
-use crate::state::mapping;
-use jni::objects::{JObject, JValue};
-use jni::sys::jobject;
-use jni::JNIEnv;
+use mc_bindings::{
+    JavaClass, MovePlayerPos, MovePlayerPosRot, MovePlayerRot, MovePlayerStatusOnly, Object,
+};
 
-/// Class of the abstract `ServerboundMovePlayerPacket`.
-pub const CLASS_TYPE: MinecraftClassType = MinecraftClassType::ServerboundMovePlayerPacket;
-
-/// A snapshot of a `ServerboundMovePlayerPacket`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ServerboundMovePlayerPacket {
     pub x: f64,
@@ -28,100 +19,40 @@ pub struct ServerboundMovePlayerPacket {
 }
 
 impl ServerboundMovePlayerPacket {
-    /// Reads a `ServerboundMovePlayerPacket` JVM object into a snapshot.
-    pub fn read(env: &mut JNIEnv, packet: &JObject) -> anyhow::Result<ServerboundMovePlayerPacket> {
+    pub fn read(
+        packet: &mc_bindings::ServerboundMovePlayerPacket,
+    ) -> anyhow::Result<ServerboundMovePlayerPacket> {
         Ok(ServerboundMovePlayerPacket {
-            x: env
-                .call_method(packet, "getX", "(D)D", &[JValue::Double(0.0)])?
-                .d()?,
-            y: env
-                .call_method(packet, "getY", "(D)D", &[JValue::Double(0.0)])?
-                .d()?,
-            z: env
-                .call_method(packet, "getZ", "(D)D", &[JValue::Double(0.0)])?
-                .d()?,
-            y_rot: env
-                .call_method(packet, "getYRot", "(F)F", &[JValue::Float(0.0)])?
-                .f()?,
-            x_rot: env
-                .call_method(packet, "getXRot", "(F)F", &[JValue::Float(0.0)])?
-                .f()?,
-            on_ground: env.call_method(packet, "isOnGround", "()Z", &[])?.z()?,
-            horizontal_collision: env
-                .call_method(packet, "horizontalCollision", "()Z", &[])?
-                .z()?,
-            has_position: env.call_method(packet, "hasPosition", "()Z", &[])?.z()?,
-            has_rotation: env.call_method(packet, "hasRotation", "()Z", &[])?.z()?,
+            x: packet.get_x(0.0)?,
+            y: packet.get_y(0.0)?,
+            z: packet.get_z(0.0)?,
+            y_rot: packet.get_y_rot(0.0)?,
+            x_rot: packet.get_x_rot(0.0)?,
+            on_ground: packet.is_on_ground()?,
+            horizontal_collision: packet.horizontal_collision()?,
+            has_position: packet.has_position()?,
+            has_rotation: packet.has_rotation()?,
         })
     }
 
-    /// Builds the matching `ServerboundMovePlayerPacket` subclass from this
-    /// snapshot, returning the new JVM object.
-    pub fn to_java(self, env: &mut JNIEnv) -> anyhow::Result<jobject> {
-        let on_ground = JValue::Bool(self.on_ground as u8);
-        let collision = JValue::Bool(self.horizontal_collision as u8);
-
-        let object = match (self.has_position, self.has_rotation) {
-            (true, true) => {
-                let class = mapping().resolve_class(
-                    env,
-                    MinecraftClassType::ServerboundMovePlayerPacketPosRot.get_name(),
-                )?;
-                env.new_object(
-                    &class,
-                    "(DDDFFZZ)V",
-                    &[
-                        JValue::Double(self.x),
-                        JValue::Double(self.y),
-                        JValue::Double(self.z),
-                        JValue::Float(self.y_rot),
-                        JValue::Float(self.x_rot),
-                        on_ground,
-                        collision,
-                    ],
-                )?
-            }
-            (true, false) => {
-                let class = mapping().resolve_class(
-                    env,
-                    MinecraftClassType::ServerboundMovePlayerPacketPos.get_name(),
-                )?;
-                env.new_object(
-                    &class,
-                    "(DDDZZ)V",
-                    &[
-                        JValue::Double(self.x),
-                        JValue::Double(self.y),
-                        JValue::Double(self.z),
-                        on_ground,
-                        collision,
-                    ],
-                )?
-            }
-            (false, true) => {
-                let class = mapping().resolve_class(
-                    env,
-                    MinecraftClassType::ServerboundMovePlayerPacketRot.get_name(),
-                )?;
-                env.new_object(
-                    &class,
-                    "(FFZZ)V",
-                    &[
-                        JValue::Float(self.y_rot),
-                        JValue::Float(self.x_rot),
-                        on_ground,
-                        collision,
-                    ],
-                )?
-            }
-            (false, false) => {
-                let class = mapping().resolve_class(
-                    env,
-                    MinecraftClassType::ServerboundMovePlayerPacketStatusOnly.get_name(),
-                )?;
-                env.new_object(&class, "(ZZ)V", &[on_ground, collision])?
-            }
+    pub fn to_object(self) -> anyhow::Result<Object> {
+        let (on_ground, collision) = (self.on_ground, self.horizontal_collision);
+        let packet = match (self.has_position, self.has_rotation) {
+            (true, true) => MovePlayerPosRot::new(
+                self.x, self.y, self.z, self.y_rot, self.x_rot, on_ground, collision,
+            )?
+            .as_object()
+            .clone(),
+            (true, false) => MovePlayerPos::new(self.x, self.y, self.z, on_ground, collision)?
+                .as_object()
+                .clone(),
+            (false, true) => MovePlayerRot::new(self.y_rot, self.x_rot, on_ground, collision)?
+                .as_object()
+                .clone(),
+            (false, false) => MovePlayerStatusOnly::new(on_ground, collision)?
+                .as_object()
+                .clone(),
         };
-        Ok(object.into_raw())
+        Ok(packet)
     }
 }

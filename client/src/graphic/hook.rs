@@ -5,8 +5,8 @@
 //! lives in [`crate::graphic::platform`]; under the Vulkan backend the frame
 //! is driven by [`crate::graphic::vulkan`]'s present hook instead.
 
+use crate::game::prelude::*;
 use crate::graphic::platform;
-use crate::mapping::entity::{EntityRef, LivingEntityRef};
 use crate::{gl, state, RUNNING};
 use ilhook::x64::{CallbackOption, HookFlags, HookPoint, HookType, Hooker, Registers};
 use log::info;
@@ -87,7 +87,7 @@ fn check_tick() {
     // acting then is an instant ban on most servers — and reactivate once the
     // player respawns. `set_active` starts/stops them on each transition.
     let mc = state::minecraft();
-    let in_world = matches!(mc.world(), Ok(Some(_)));
+    let in_world = matches!(mc.level(), Ok(Some(_)));
     let player = match mc.player() {
         Ok(Some(player)) => Some(player),
         Ok(None) | Err(_) => None,
@@ -103,7 +103,7 @@ fn check_tick() {
         return;
     };
 
-    let tick_count = match player.get_tick_count() {
+    let tick_count = match player.tick_count() {
         Ok(count) => count,
         Err(_) => return,
     };

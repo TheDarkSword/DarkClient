@@ -9,13 +9,10 @@
 
 mod overlay;
 
-use crate::mapping::{MappedObject, MinecraftVersion};
-use crate::state::{mapping, minecraft};
+use crate::game::prelude::*;
 use anyhow::{anyhow, bail};
 use ash::vk;
 use ash::vk::Handle;
-use jni::objects::{GlobalRef, JObject, JString, JValue};
-use jni::JNIEnv;
 use log::{error, info, warn};
 use overlay::{Handles, Overlay};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
@@ -23,14 +20,11 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Field of LWJGL's `VKCapabilitiesDevice` holding the present entry point.
-const PRESENT_FIELD: &str = "vkQueuePresentKHR";
-
 struct Hooked {
     /// The `VKCapabilitiesDevice` whose present pointer was swapped.
-    capabilities: GlobalRef,
+    capabilities: VKCapabilitiesDevice,
     /// Minecraft's `VulkanGpuSurface`, read for the swapchain size.
-    surface: GlobalRef,
+    surface: VulkanGpuSurface,
     handles: Handles,
     overlay: Option<Overlay>,
     /// Set once the overlay failed; presents then just pass through.
@@ -49,100 +43,9 @@ static TEARDOWN_DONE: AtomicBool = AtomicBool::new(false);
 /// Presents currently executing our code — unload must wait for zero.
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
-// --- JNI helpers -----------------------------------------------------------
-
-/// Reads a field by name through `java.lang.reflect`, walking superclasses.
-/// Used for Minecraft's backend classes, whose package (and so their JNI
-/// descriptors) differs between 26.2 and 26.3. Primitives come back boxed.
-fn reflected_field<'a>(
-    env: &mut JNIEnv<'a>,
-    object: &JObject,
-    name: &str,
-) -> anyhow::Result<JObject<'a>> {
-    let field_name = env.new_string(name)?;
-    let mut class = env
-        .call_method(object, "getClass", "()Ljava/lang/Class;", &[])?
-        .l()?;
-    while !class.is_null() {
-        let found = env.call_method(
-            &class,
-            "getDeclaredField",
-            "(Ljava/lang/String;)Ljava/lang/reflect/Field;",
-            &[JValue::Object(&field_name)],
-        );
-        match found {
-            Ok(field) => {
-                let field = field.l()?;
-                env.call_method(&field, "setAccessible", "(Z)V", &[JValue::from(true)])?;
-                return Ok(env
-                    .call_method(
-                        &field,
-                        "get",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        &[JValue::Object(object)],
-                    )?
-                    .l()?);
-            }
-            Err(_) => {
-                env.exception_clear()?;
-                class = env
-                    .call_method(&class, "getSuperclass", "()Ljava/lang/Class;", &[])?
-                    .l()?;
-            }
-        }
-    }
-    bail!("field {name} not found")
-}
-
-fn reflected_int(env: &mut JNIEnv, object: &JObject, name: &str) -> anyhow::Result<i32> {
-    let boxed = reflected_field(env, object, name)?;
-    Ok(env.call_method(&boxed, "intValue", "()I", &[])?.i()?)
-}
-
-fn class_name(env: &mut JNIEnv, object: &JObject) -> anyhow::Result<String> {
-    let class = env
-        .call_method(object, "getClass", "()Ljava/lang/Class;", &[])?
-        .l()?;
-    let name = env
-        .call_method(&class, "getName", "()Ljava/lang/String;", &[])?
-        .l()?;
-    Ok(env.get_string(&JString::from(name))?.into())
-}
-
-/// The native handle behind an LWJGL `Pointer` (`VkQueue`, `VkDevice`, …).
-fn address(env: &mut JNIEnv, pointer: &JObject) -> anyhow::Result<u64> {
-    Ok(env.call_method(pointer, "address", "()J", &[])?.j()? as u64)
-}
-
-fn call_object<'a>(
-    env: &mut JNIEnv<'a>,
-    object: &JObject,
-    method: &str,
-    descriptor: &str,
-) -> anyhow::Result<JObject<'a>> {
-    Ok(env.call_method(object, method, descriptor, &[])?.l()?)
-}
-
 /// `vkGetInstanceProcAddr` from the loader LWJGL itself uses.
-fn get_instance_proc_addr(env: &mut JNIEnv) -> anyhow::Result<vk::PFN_vkGetInstanceProcAddr> {
-    let vk_class = mapping().resolve_class(env, "org/lwjgl/vulkan/VK")?;
-    let provider = env
-        .call_static_method(
-            &vk_class,
-            "getFunctionProvider",
-            "()Lorg/lwjgl/system/FunctionProvider;",
-            &[],
-        )?
-        .l()?;
-    let name = env.new_string("vkGetInstanceProcAddr")?;
-    let pointer = env
-        .call_method(
-            &provider,
-            "getFunctionAddress",
-            "(Ljava/lang/CharSequence;)J",
-            &[JValue::Object(&name)],
-        )?
-        .j()?;
+fn get_instance_proc_addr() -> anyhow::Result<vk::PFN_vkGetInstanceProcAddr> {
+    let pointer = VK::get_function_provider()?.get_function_address("vkGetInstanceProcAddr")?;
     if pointer == 0 {
         bail!("vkGetInstanceProcAddr not found");
     }
@@ -150,86 +53,65 @@ fn get_instance_proc_addr(env: &mut JNIEnv) -> anyhow::Result<vk::PFN_vkGetInsta
     Ok(unsafe { std::mem::transmute::<usize, vk::PFN_vkGetInstanceProcAddr>(pointer as usize) })
 }
 
-// --- Discovery -------------------------------------------------------------
-
 /// Everything [`install`] needs, found through the live game objects.
 struct Discovered {
-    capabilities: GlobalRef,
-    surface: GlobalRef,
+    capabilities: VKCapabilitiesDevice,
+    surface: VulkanGpuSurface,
     original_present: i64,
     handles: Handles,
 }
 
-/// Finds the Vulkan objects of the running game, or `None` when it renders
-/// through OpenGL.
-fn discover(env: &mut JNIEnv) -> anyhow::Result<Option<Discovered>> {
-    let frontend = minecraft().call_method("windowSurface", &[])?.l()?;
-    let surface = reflected_field(env, &frontend, "backend")?;
-    let surface_class = class_name(env, &surface)?;
-    if !surface_class.contains("Vulkan") {
+/// `None` under OpenGL, or before 26.2.
+fn discover() -> anyhow::Result<Option<Discovered>> {
+    let frontend = match minecraft().window_surface() {
+        Ok(frontend) => frontend,
+        Err(mc_bindings::Error::Unavailable { .. }) => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let Some(frontend) = frontend.cast::<FrontendGpuSurface>()? else {
         return Ok(None);
-    }
-    info!("Vulkan backend detected ({surface_class})");
+    };
+    let backend = frontend.backend()?;
+    let Some(surface) = backend.cast::<VulkanGpuSurface>()? else {
+        return Ok(None);
+    };
+    info!(
+        "Vulkan backend detected ({})",
+        backend.runtime_class_name()?
+    );
 
-    let queue = reflected_field(env, &surface, "presentQueue")?;
-    let capabilities = call_object(
-        env,
-        &queue,
-        "getCapabilities",
-        "()Lorg/lwjgl/vulkan/VKCapabilitiesDevice;",
-    )?;
-    let original_present = env.get_field(&capabilities, PRESENT_FIELD, "J")?.j()?;
+    let queue = surface.present_queue()?;
+    let capabilities = queue.get_capabilities()?;
+    let original_present = capabilities.vk_queue_present_khr()?;
     if original_present == 0 {
         bail!("vkQueuePresentKHR is not loaded");
     }
-
-    let device = call_object(env, &queue, "getDevice", "()Lorg/lwjgl/vulkan/VkDevice;")?;
-    let physical_device = call_object(
-        env,
-        &device,
-        "getPhysicalDevice",
-        "()Lorg/lwjgl/vulkan/VkPhysicalDevice;",
-    )?;
-    let instance = call_object(
-        env,
-        &physical_device,
-        "getInstance",
-        "()Lorg/lwjgl/vulkan/VkInstance;",
-    )?;
-
+    let device = queue.get_device()?;
+    let physical_device = device.get_physical_device()?;
+    let instance = physical_device.get_instance()?;
     // `presentQueue` is the device's graphics queue; its family is needed to
     // create our command pool.
-    let mc_device = reflected_field(env, &surface, "device")?;
-    let graphics_queue = reflected_field(env, &mc_device, "graphicsQueue")?;
-    let queue_family = reflected_int(env, &graphics_queue, "queueFamilyIndex")?;
-    let format = reflected_int(env, &surface, "swapchainImageFormat")?;
+    let queue_family = surface.device()?.graphics_queue()?.queue_family_index()?;
 
     let handles = Handles {
-        get_instance_proc_addr: get_instance_proc_addr(env)?,
-        instance: vk::Instance::from_raw(address(env, &instance)?),
-        physical_device: vk::PhysicalDevice::from_raw(address(env, &physical_device)?),
-        device: vk::Device::from_raw(address(env, &device)?),
+        get_instance_proc_addr: get_instance_proc_addr()?,
+        instance: vk::Instance::from_raw(instance.address()? as u64),
+        physical_device: vk::PhysicalDevice::from_raw(physical_device.address()? as u64),
+        device: vk::Device::from_raw(device.address()? as u64),
         queue_family: queue_family as u32,
-        format: vk::Format::from_raw(format),
+        format: vk::Format::from_raw(surface.swapchain_image_format()?),
     };
     Ok(Some(Discovered {
-        capabilities: env.new_global_ref(&capabilities)?,
-        surface: env.new_global_ref(&surface)?,
+        capabilities,
+        surface,
         original_present,
         handles,
     }))
 }
 
 /// Points LWJGL's present entry back at `pointer`.
-fn set_present_pointer(capabilities: &GlobalRef, pointer: i64) -> anyhow::Result<()> {
-    let mut env = mapping().get_env()?;
-    env.set_field(
-        capabilities.as_obj(),
-        PRESENT_FIELD,
-        "J",
-        JValue::Long(pointer),
-    )?;
-    Ok(())
+fn set_present_pointer(capabilities: &VKCapabilitiesDevice, pointer: i64) -> anyhow::Result<()> {
+    Ok(capabilities.set_vk_queue_present_khr(pointer)?)
 }
 
 // --- Install / uninstall ---------------------------------------------------
@@ -237,13 +119,7 @@ fn set_present_pointer(capabilities: &GlobalRef, pointer: i64) -> anyhow::Result
 /// Hooks presentation when the game renders through Vulkan. Returns
 /// `Ok(false)` — touching nothing — when it renders through OpenGL.
 pub fn install() -> anyhow::Result<bool> {
-    // The Vulkan backend (and `Minecraft.windowSurface()`) arrived in 26.2.
-    if mapping().get_version() < MinecraftVersion::new(26, 2, 0) {
-        return Ok(false);
-    }
-    let mut env = mapping().get_env()?;
-    let discovered = env.with_local_frame(32, discover)?;
-    let Some(discovered) = discovered else {
+    let Some(discovered) = discover()? else {
         return Ok(false);
     };
 
@@ -382,15 +258,9 @@ unsafe fn draw_overlay(
     let overlay = hooked.overlay.as_mut().expect("overlay was just created");
 
     if overlay.swapchain() != swapchain {
-        let extent = {
-            let mut env = mapping().get_env()?;
-            let surface = hooked.surface.as_obj();
-            env.with_local_frame(8, |env| -> anyhow::Result<vk::Extent2D> {
-                Ok(vk::Extent2D {
-                    width: reflected_int(env, surface, "swapchainWidth")? as u32,
-                    height: reflected_int(env, surface, "swapchainHeight")? as u32,
-                })
-            })?
+        let extent = vk::Extent2D {
+            width: hooked.surface.swapchain_width()? as u32,
+            height: hooked.surface.swapchain_height()? as u32,
         };
         overlay.set_swapchain(queue, swapchain, extent)?;
     }

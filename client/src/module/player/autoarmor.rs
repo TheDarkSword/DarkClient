@@ -1,6 +1,6 @@
-use crate::mapping::inventory::Inventory;
+use crate::game::menu_slot;
+use crate::game::prelude::*;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
-use crate::state::minecraft;
 
 /// Container id of the player's own inventory menu.
 const INVENTORY_MENU_ID: i32 = 0;
@@ -60,11 +60,11 @@ impl Module for AutoArmorModule {
 
             // Only armor pieces, and only when their armor slot is free —
             // a shift-click into an occupied slot would just shuffle the item.
-            let equipment_slot = player.equipment_slot_for_item(&stack)?;
+            let equipment_slot = player.get_equipment_slot_for_item(&stack)?;
             if !equipment_slot.is_armor()? {
                 continue;
             }
-            let armor_slot = equipment_slot.index(ARMOR_BASE)?;
+            let armor_slot = equipment_slot.get_index(ARMOR_BASE)?;
             if !inventory.get_item(armor_slot)?.is_empty()? {
                 continue;
             }
@@ -73,11 +73,14 @@ impl Module for AutoArmorModule {
             let Some(game_mode) = minecraft().game_mode()? else {
                 return Ok(());
             };
-            return game_mode.container_quick_move(
+            game_mode.handle_container_input(
                 INVENTORY_MENU_ID,
-                Inventory::menu_slot(slot),
+                menu_slot(slot),
+                0,
+                ContainerInput::QuickMove,
                 &player,
-            );
+            )?;
+            return Ok(());
         }
         Ok(())
     }
