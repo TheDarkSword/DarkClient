@@ -1,12 +1,13 @@
 // The framework exposes deliberate toolkit API (animation, theming,
-// notification, mapping helpers) that is not all wired up to a caller yet.
+// notification) that is not all wired up to a caller yet.
 #![allow(dead_code)]
 
 extern crate jni;
 mod config;
 mod game;
 mod graphic;
-mod mapping;
+#[cfg(test)]
+mod jvm_test;
 mod module;
 pub mod net;
 mod state;
@@ -103,8 +104,8 @@ fn start(force: bool) -> (i32, String) {
         default_hook(panic_info);
     }));
 
-    let mapping = match state::init_mapping() {
-        Ok(mapping) => mapping,
+    let runtime = match state::init_runtime() {
+        Ok(runtime) => runtime,
         Err(e) => {
             error!("Client initialization failed: {e}");
             RUNNING.store(false, Ordering::SeqCst);
@@ -112,8 +113,8 @@ fn start(force: bool) -> (i32, String) {
         }
     };
 
-    let version = mapping.version_id().unwrap_or("unknown").to_string();
-    if !mapping.version_id().is_some_and(mc_versions::is_supported) {
+    let version = runtime.version_id().unwrap_or("unknown").to_string();
+    if !runtime.version_id().is_some_and(mc_versions::is_supported) {
         let supported = mc_versions::SUPPORTED_VERSIONS.join(", ");
         if !force {
             warn!("Minecraft {version} is not supported (supported: {supported}); not starting");
@@ -167,7 +168,7 @@ pub extern "C" fn cleanup_client() {
     RUNNING.store(false, Ordering::SeqCst);
     uninstall_hooks();
     crate::graphic::input::cleanup();
-    // Stop every still-active enabled module before the JNI mapping is torn
+    // Stop every still-active enabled module before the JNI runtime is torn
     // down — without this, hot-reloading the library would leak whatever
     // state the active modules installed (camera handles, packet listeners,
     // overridden game modes, …) until the user toggled them off by hand.

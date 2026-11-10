@@ -9,7 +9,7 @@ A Minecraft hacked client built in Rust, using JNI (Java Native Interface) for s
 
 ### Supported Minecraft Versions
 
-**26.1, 26.1.1, 26.1.2, 26.2 and 26.3** — the unobfuscated releases, with both the OpenGL and the Vulkan renderer. Names are resolved directly and method signatures via runtime JNI reflection; no mapping files are needed.
+**26.1, 26.1.1, 26.1.2, 26.2 and 26.3** — the unobfuscated releases, with both the OpenGL and the Vulkan renderer. The game classes are generated as Rust types for every one of them; no mapping files are needed.
 
 Any other version — snapshots included — is refused: the injector checks the game version before injecting, and the client checks it again from inside the game. For testing on an unlisted version, tick **Ignore version check** in the injector (`f` in the TUI, `--force` with `--inject`). Obfuscated Minecraft (1.21.11 and older) is not supported.
 
@@ -28,7 +28,7 @@ DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It
 - **🎨 Cross-Platform GUI**: Beautiful injector interface built with egui
 - **🖥️ In-Game ClickGUI**: egui overlay with draggable category panels, per-module settings, scrollable lists and rebindable keys
 - **⌨️ Real-time Input Handling**: Advanced keyboard/mouse event processing for module toggling
-- **🗺️ Mapping System**: Mojmap names resolved at runtime through JNI reflection, with per-version renames handled in one place
+- **🗺️ Typed Game API**: Minecraft classes generated as Rust types, with per-version differences handled in one place
 - **📡 Packet Layer**: Netty-pipeline interception (pure JNI, no JVMTI) for packet-level modules — powers NoFall and Velocity / Anti-Knockback
 - **🔄 Module Architecture**: Extensible module system for easy feature development
 - **💾 Persistent Config**: keybinds, settings, enabled modules and GUI layout saved across injections
@@ -63,15 +63,10 @@ A `cdylib` injected into the JVM. On load it provides:
 The core modification framework featuring:
 - JNI integration with Minecraft's runtime
 - Module system for game modifications (combat, movement, render)
-- Mapping system resolving Minecraft classes and members at runtime
+- A thin `game/` layer of helpers over the generated Minecraft types
 - An in-game ClickGUI overlay, input processing and event management
 - A packet layer (`net/`) that injects a handler into Minecraft's Netty pipeline
 - Persistent configuration of keybinds, settings and GUI layout
-
-### **Mapping Derive** (`mapping-derive/`)
-A `proc-macro` crate providing `#[derive(MappedObject)]` for the JVM-object
-wrappers in the client — generates the JNI helper methods so each game
-wrapper stays a thin, safe handle.
 
 ### **Version support** (`mc-versions/`, `mc-runtime/`, `mc-bindings/`, `mc-bindgen/`, `mc-data/`)
 How one build runs on every supported Minecraft version:
@@ -191,13 +186,12 @@ DarkClient/
 ├── 📁 client/               # Core modification framework
 │   └── 📁 src/
 │       ├── 📄 lib.rs        # Entry points (start_client / cleanup_client)
-│       ├── 📄 state.rs      # Global client + mapping state
+│       ├── 📄 state.rs      # Global client state
 │       ├── 📄 config.rs     # Persistent config (keybinds, settings, GUI layout)
-│       ├── 📁 mapping/      # Minecraft mapping system (runtime reflection)
+│       ├── 📁 game/         # Helpers over the generated Minecraft types
 │       ├── 📁 graphic/      # Overlay, hooks, input, platform seam
 │       ├── 📁 module/       # Module framework + registry
 │       └── 📁 net/          # Netty packet layer (packet structs + dispatch)
-├── 📁 mapping-derive/       # proc-macro: #[derive(MappedObject)]
 ├── 📁 xtask/                # Task runner: e2e, mc-dump, bindgen
 ├── 📁 mc-versions/          # Supported versions (generated) + version parsing
 ├── 📁 mc-runtime/           # JVM, game class loader, cached JNI ids

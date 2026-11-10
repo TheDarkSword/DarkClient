@@ -190,31 +190,6 @@ impl<'l> Cx<'l> {
         Ok(self.env.is_same_object(a, b)?)
     }
 
-    /// Runs `f` in a new local frame; its lifetime keeps local refs from leaking out.
-    pub fn with_frame<T, E>(
-        &mut self,
-        capacity: i32,
-        f: impl for<'f> FnOnce(&mut Cx<'f>) -> std::result::Result<T, E>,
-    ) -> std::result::Result<T, E>
-    where
-        E: From<Error>,
-    {
-        self.env.push_local_frame(capacity).map_err(Error::from)?;
-        let mut inner = Cx {
-            runtime: self.runtime,
-            // SAFETY: the clone is only used inside this frame, on this thread.
-            env: unsafe { self.env.unsafe_clone() },
-            temps: Vec::new(),
-        };
-        let result = f(&mut inner);
-        drop(inner);
-        // SAFETY: pops the frame pushed above; nothing created in it escapes.
-        unsafe {
-            let _ = self.env.pop_local_frame(&JObject::null());
-        }
-        result
-    }
-
     /// Freed when the context is dropped.
     pub fn temp(&mut self, local: JObject<'l>) -> jvalue {
         let raw = local.into_raw();

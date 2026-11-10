@@ -1,20 +1,15 @@
-//! In-process JVM integration tests for the mapping layer.
-//!
-//! These boot a real JVM — via the `jni` crate's `invocation` feature — with
-//! a small Java fixture on its class path (see `client/tests/java/`) and
-//! exercise the reflected mapping path and the menu/in-world transitions
-//! against it. A JDK (`javac` on `PATH`) is required to run them.
+//! Tests against an in-process JVM running the Java fixture in
+//! `client/tests/java/` instead of the game. Needs a JDK (`javac`).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use jni::objects::JValue;
 use jni::{InitArgsBuilder, JNIVersion, JavaVM};
 
-use crate::mapping::Mapping;
+use mc_runtime::Runtime;
 
-/// JNI name of the fixture class used for the reflection tests.
 const SAMPLE: &str = "com/darkclient/fixture/Sample";
 
 /// Compiles the Java fixture once and returns the output classes directory.
@@ -73,11 +68,9 @@ fn jvm() -> &'static JavaVM {
     })
 }
 
-/// Builds a `Mapping` against the shared JVM. The fixture ships a class named
-/// `net/minecraft/client/Minecraft`, so the mapping selects reflected mode.
-fn reflected_mapping() -> Mapping {
-    jvm(); // ensure the JVM exists before `Mapping` probes for it
-    Mapping::new().expect("Mapping::new against the fixture JVM")
+fn runtime() -> &'static Runtime {
+    jvm();
+    Runtime::install().expect("install the runtime on the fixture JVM")
 }
 
 /// Invokes a no-argument `void` static method on the fixture `Minecraft`.
@@ -93,72 +86,11 @@ fn call_fixture_static(method: &str) {
 }
 
 #[test]
-fn mapping_reflects_a_fixture_class() {
-    let mapping = reflected_mapping();
-    let class = mapping.get_class(SAMPLE).expect("Sample must reflect");
-    let methods = class.method_names();
-    for expected in ["value", "greet", "sum", "create"] {
-        assert!(
-            methods.iter().any(|m| m == expected),
-            "reflected class is missing method `{expected}`",
-        );
-    }
-}
-
-#[test]
-fn reflected_method_signatures_are_built_from_jni_types() {
-    let mapping = reflected_mapping();
-    let class = mapping.get_class(SAMPLE).unwrap();
-    assert!(
-        class
-            .get_method_by_signature("greet", "(Ljava/lang/String;)Ljava/lang/String;")
-            .is_ok(),
-        "greet(String) signature should be reflected",
-    );
-    assert!(
-        class.get_method_by_signature("sum", "(IJ)J").is_ok(),
-        "sum(int, long) signature should be reflected",
-    );
-}
-
-#[test]
-fn an_overloaded_method_reflects_every_overload() {
-    let mapping = reflected_mapping();
-    let class = mapping.get_class(SAMPLE).unwrap();
-    assert_eq!(
-        class.get_methods("value").unwrap().len(),
-        2,
-        "value(int) and value(double) are distinct overloads",
-    );
-}
-
-#[test]
-fn overload_resolution_uses_reflected_signatures() {
-    let mapping = reflected_mapping();
-    let class = mapping.get_class(SAMPLE).unwrap();
-    let chosen = class
-        .get_method_by_args("value", &[JValue::Int(3)])
-        .expect("an int argument must resolve an overload");
-    assert_eq!(chosen.signature, "(I)I");
-}
-
-#[test]
-fn get_class_caches_reflected_results() {
-    let mapping = reflected_mapping();
-    let first = mapping.get_class(SAMPLE).unwrap();
-    let second = mapping.get_class(SAMPLE).unwrap();
-    assert!(
-        Arc::ptr_eq(&first, &second),
-        "the second lookup must hit the cache",
-    );
-}
-
-#[test]
 fn resolving_a_missing_class_fails() {
-    let mapping = reflected_mapping();
-    let mut env = mapping.get_env().unwrap();
+    let runtime = runtime();
+    let mut env = runtime.env().unwrap();
     assert!(
-        mapping
+        runtime
             .resolve_class(&mut env, "totally/made/up/Class")
             .is_err(),
         "a class that does not exist must not resolve",
@@ -226,8 +158,7 @@ fn binding_targets_reach_methods_fields_and_constructors() {
     static FAIL: Method = Method::new(SAMPLE, "fail", "()V", false, VOID);
     static MISSING: Method = Method::new(SAMPLE, "missing", "()V", false, VOID);
 
-    let mapping = reflected_mapping();
-    let mut cx = mapping.cx().unwrap();
+    let mut cx = runtime().cx().unwrap();
     let sample = cx
         .call(&CREATE, &JObject::null(), &[])
         .unwrap()
@@ -274,7 +205,7 @@ fn new_object(class: &str) -> mc_bindings::Object {
 fn generated_handles_follow_the_class_hierarchy() {
     use mc_bindings::{Entity, LocalPlayer, Minecraft, Player, Window};
 
-    reflected_mapping();
+    runtime();
     let minecraft = Minecraft::get_instance().unwrap();
     assert!(minecraft.is::<Minecraft>().unwrap());
     let window = minecraft.get_window().unwrap();
@@ -300,7 +231,7 @@ fn generated_handles_follow_the_class_hierarchy() {
 fn generated_enums_values_and_collections_convert() {
     use mc_bindings::{ClientLevel, InteractionHand, LivingEntity, Vec3};
 
-    reflected_mapping();
+    runtime();
     let entity: LivingEntity = new_object("net/minecraft/world/entity/LivingEntity")
         .cast()
         .unwrap()
@@ -342,7 +273,7 @@ fn generated_enums_values_and_collections_convert() {
 fn final_fields_and_constants_are_read_once() {
     use mc_bindings::{Items, Minecraft};
 
-    reflected_mapping();
+    runtime();
     let minecraft = Minecraft::get_instance().unwrap();
     let gui = minecraft.gui().unwrap();
     assert!(gui.is_same(&minecraft.gui().unwrap()));
@@ -358,7 +289,7 @@ fn binding_call_cost() {
     use mc_bindings::{ClientLevel, Entity, Minecraft};
     use std::time::Instant;
 
-    let mapping = reflected_mapping();
+    runtime();
     let entity: Entity = new_object("net/minecraft/world/entity/Entity")
         .cast()
         .unwrap()
@@ -381,21 +312,6 @@ fn binding_call_cost() {
     });
     time("int method (getId)", &mut || {
         entity.get_id().unwrap();
-    });
-    time("int method, reflection path (getId)", &mut || {
-        let mut env = mapping.get_env().unwrap();
-        env.with_local_frame(4, |_| {
-            mapping
-                .call_method(
-                    crate::mapping::MinecraftClassType::Entity,
-                    entity.as_obj(),
-                    "getId",
-                    &[],
-                )
-                .map(|value| value.i())
-        })
-        .unwrap()
-        .unwrap();
     });
     time("value result (position → Vec3)", &mut || {
         entity.position().unwrap();

@@ -29,7 +29,6 @@ libloading = "0.9.0"
 # emit `extern "cdecl"` ABI warnings on this target.
 ilhook = { version = "2.3.0", default-features = false, features = ["x64"] }
 lazy_static = "1.4.0"
-mapping-derive = { path = "../mapping-derive" }
 mc-versions = { path = "../mc-versions" }
 mc-runtime = { path = "../mc-runtime" }
 mc-bindings = { path = "../mc-bindings" }
@@ -37,7 +36,7 @@ protocol = { path = "../protocol" }
 
 [dev-dependencies]
 # The `invocation` feature provides `JavaVM::new`, used by the in-process
-# JVM integration tests (client/src/mapping/jvm_test.rs).
+# JVM integration tests (client/src/jvm_test.rs).
 jni = { workspace = true, features = ["invocation"] }
 
 [build-dependencies]

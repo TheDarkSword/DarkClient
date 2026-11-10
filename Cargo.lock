@@ -680,7 +680,6 @@ dependencies = [
  "libc",
  "libloading 0.9.0",
  "log",
- "mapping-derive",
  "mc-bindings",
  "mc-runtime",
  "mc-versions",
@@ -1898,14 +1897,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b955cdeb2a02b9117f121ce63aa52d08ade45de53e48fe6a38b39c10f6f709"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "mapping-derive"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 2.0.87",
 ]
 
 [[package]]

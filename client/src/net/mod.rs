@@ -15,7 +15,7 @@
 pub mod packet;
 
 use crate::net::packet::{Packet, PacketAction};
-use crate::state::{mapping, minecraft};
+use crate::state::{env, minecraft};
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::jobject;
 use jni::{JNIEnv, NativeMethod};
@@ -68,7 +68,7 @@ pub fn ensure_installed() {
 /// `glfwSwapBuffers` call — a leaked exception would crash the game the moment
 /// control returns to its Java frame.
 fn clear_pending_exception() {
-    if let Ok(env) = mapping().get_env() {
+    if let Ok(env) = env() {
         if env.exception_check().unwrap_or(false) {
             let _ = env.exception_clear();
             log::warn!("net: cleared a stray JNI exception");
@@ -149,8 +149,8 @@ fn ensure_installed_inner() -> anyhow::Result<()> {
 /// native methods are (re)bound: on reload the previous binding points into the
 /// now-unloaded old library and *must* be replaced.
 fn define_handler() -> anyhow::Result<GlobalRef> {
-    let mut env = mapping().get_env()?;
-    let loader = mapping()
+    let mut env = env()?;
+    let loader = mc_bindings::runtime()?
         .game_class_loader()
         .ok_or_else(|| anyhow::anyhow!("game class loader not captured yet"))?;
 
@@ -247,7 +247,7 @@ fn install_on(connection: &Connection) -> anyhow::Result<()> {
         return Ok(());
     }
     let handler = {
-        let mut env = mapping().get_env()?;
+        let mut env = env()?;
         env.with_local_frame(4, |env| -> anyhow::Result<Object> {
             let class = JClass::from(env.new_local_ref(handler_class.as_obj())?);
             let handler = env.new_object(&class, "()V", &[])?;
@@ -281,7 +281,7 @@ pub fn teardown() {
     }
 
     if let Some(class) = class {
-        if let Ok(mut env) = mapping().get_env() {
+        if let Ok(mut env) = env() {
             if let Ok(local) = env.new_local_ref(class.as_obj()) {
                 let _ = env.unregister_native_methods(JClass::from(local));
             }
