@@ -56,7 +56,7 @@ pub fn process_card(ui: &mut Ui, proc: &ProcessInfo, selected: bool) -> Response
     let painter = ui.painter();
     painter.rect_filled(rect, 10.0, bg);
     if selected {
-        painter.rect_stroke(rect, 10.0, Stroke::new(1.5, Palette::ACCENT));
+        painter.rect_stroke(rect, 10.0, Stroke::new(1.5_f32, Palette::ACCENT));
     }
 
     let dot_color = if selected {

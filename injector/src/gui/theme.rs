@@ -41,7 +41,7 @@ pub fn apply(ctx: &Context) {
     v.extreme_bg_color = Palette::PANEL;
     v.override_text_color = Some(Palette::TEXT);
     v.selection.bg_fill = Palette::ACCENT.linear_multiply(0.45);
-    v.selection.stroke = Stroke::new(1.0, Palette::ACCENT);
+    v.selection.stroke = Stroke::new(1.0_f32, Palette::ACCENT);
     v.hyperlink_color = Palette::ACCENT;
 
     let w = &mut v.widgets;
@@ -51,10 +51,10 @@ pub fn apply(ctx: &Context) {
     w.active.rounding = Rounding::same(8.0);
     w.inactive.bg_fill = Palette::CARD;
     w.inactive.weak_bg_fill = Palette::CARD;
-    w.inactive.fg_stroke = Stroke::new(1.0, Palette::TEXT);
+    w.inactive.fg_stroke = Stroke::new(1.0_f32, Palette::TEXT);
     w.hovered.bg_fill = Palette::CARD_HOVER;
     w.hovered.weak_bg_fill = Palette::CARD_HOVER;
-    w.hovered.fg_stroke = Stroke::new(1.0, Palette::TEXT);
+    w.hovered.fg_stroke = Stroke::new(1.0_f32, Palette::TEXT);
     w.active.bg_fill = Palette::ACCENT;
     w.active.weak_bg_fill = Palette::ACCENT;
 
