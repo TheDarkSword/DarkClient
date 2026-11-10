@@ -23,6 +23,8 @@ pub enum Error {
     },
     #[error("the Minecraft runtime is not initialised")]
     NoRuntime,
+    #[error("the game class loader is not known yet")]
+    NoClassLoader,
     #[error("{member} returned null")]
     Null { member: &'static str },
     #[error("{member}: an element is not a {expected}")]

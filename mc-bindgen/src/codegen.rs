@@ -1049,7 +1049,7 @@ pub fn bindings(model: &Model) -> Result<String, String> {
          use std::sync::OnceLock;\n\n\
          use jni::objects::{GlobalRef, JObject, JValue};\n\
          use jni::signature::{Primitive, ReturnType};\n\
-         use mc_runtime::{Cx, Error, Field, JavaClass, JavaType, Method, MinecraftVersion, Object, Result};\n\n",
+         use mc_runtime::{BindingCheck, CheckKind, Cx, Error, Field, JavaClass, JavaType, Method, MinecraftVersion, Object, Result};\n\n",
     );
     out.push_str("/// Every supported version: id, parsed form, binding group.\n");
     out.push_str("pub(crate) static VERSIONS: &[(&str, MinecraftVersion, usize)] = &[\n");
@@ -1068,7 +1068,64 @@ pub fn bindings(model: &Model) -> Result<String, String> {
             ClassKind::Value(components) => emit_value(&mut out, model, &types, class, components)?,
         }
     }
+    emit_checks(&mut out, model)?;
     Ok(out)
+}
+
+/// Every class and member target with a bit mask of the groups that use it,
+/// for `mc_bindings::verify`.
+fn emit_checks(out: &mut String, model: &Model) -> Result<(), String> {
+    if model.group_count > 64 {
+        return Err("more than 64 binding groups".to_string());
+    }
+    let mut checks: Vec<(String, u64)> = Vec::new();
+    let mut add =
+        |check: String, group: usize| match checks.iter_mut().find(|(other, _)| *other == check) {
+            Some((_, mask)) => *mask |= 1 << group,
+            None => checks.push((check, 1 << group)),
+        };
+    for group in 0..model.group_count {
+        let first = model.groups.iter().position(|g| *g == group).unwrap();
+        for class in &model.classes {
+            let external = class.external;
+            if let Some(name) = &class.names[first] {
+                add(format!("BindingCheck::class({name:?}, {external})"), group);
+            }
+            let constants = match &class.kind {
+                ClassKind::Enum(constants) => constants.as_slice(),
+                _ => &[],
+            };
+            for member in class.members.iter().chain(constants) {
+                let Binding::Direct {
+                    class: owner,
+                    name,
+                    descriptor,
+                    is_static,
+                    ..
+                } = &member.bindings[first]
+                else {
+                    continue;
+                };
+                let kind = match member.kind {
+                    Kind::Method => "Method",
+                    Kind::Constructor => "Constructor",
+                    Kind::Field => "Field",
+                };
+                add(
+                    format!(
+                        "BindingCheck::member(CheckKind::{kind}, {owner:?}, {name:?}, {descriptor:?}, {is_static}, {external})"
+                    ),
+                    group,
+                );
+            }
+        }
+    }
+    out.push_str("pub(crate) static CHECKS: &[(u64, BindingCheck)] = &[\n");
+    for (check, mask) in &checks {
+        let _ = writeln!(out, "({mask:#b}, {check}),");
+    }
+    out.push_str("];\n");
+    Ok(())
 }
 
 pub fn supported(model: &Model) -> String {

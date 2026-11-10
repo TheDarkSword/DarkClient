@@ -6,10 +6,10 @@ mod shims;
 
 pub use generated::*;
 pub use mc_runtime::{
-    runtime, Error, JavaClass, JavaType, MinecraftVersion, Object, Result, Runtime,
+    runtime, BindingReport, Error, JavaClass, JavaType, MinecraftVersion, Object, Result, Runtime,
 };
 
-use generated::VERSIONS;
+use generated::{CHECKS, VERSIONS};
 use mc_runtime::Cx;
 
 fn cx() -> Result<Cx<'static>> {
@@ -31,6 +31,18 @@ fn group_of(id: Option<&str>, version: MinecraftVersion) -> usize {
         .find(|(_, known, _)| *known <= version)
         .or(VERSIONS.first())
         .map_or(0, |(_, _, group)| *group)
+}
+
+/// Checks that every class and member the running version binds exists in the
+/// game, without initializing any class.
+pub fn verify() -> Result<BindingReport> {
+    let group = group()?;
+    runtime()?.verify(
+        CHECKS
+            .iter()
+            .filter(|(groups, _)| groups & (1 << group) != 0)
+            .map(|(_, check)| check),
+    )
 }
 
 fn unavailable(member: &'static str) -> Error {

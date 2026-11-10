@@ -139,9 +139,41 @@ fn start(force: bool) -> (i32, String) {
             error!("Failed to install hooks: {e}");
         }
         info!("DarkClient started");
+        self_check();
     });
 
     (client_abi::STARTED, version)
+}
+
+/// Logs any binding the running game lacks: the modules using it would fail.
+fn self_check() {
+    let started = std::time::Instant::now();
+    let report = match mc_bindings::verify() {
+        Ok(report) => report,
+        Err(e) => {
+            warn!("Binding self-check could not run: {e}");
+            return;
+        }
+    };
+    let elapsed = started.elapsed();
+    if !report.absent.is_empty() {
+        info!("Not in this build, skipped: {}", report.absent.join(", "));
+    }
+    if report.missing.is_empty() {
+        info!(
+            "Binding self-check: all {} bindings resolve ({elapsed:.0?})",
+            report.checked
+        );
+        return;
+    }
+    for missing in &report.missing {
+        warn!("Binding self-check: missing {missing}");
+    }
+    warn!(
+        "Binding self-check: {} of {} bindings missing ({elapsed:.0?})",
+        report.missing.len(),
+        report.checked
+    );
 }
 
 /// Copies `message` into the agent's report buffer as a NUL-terminated

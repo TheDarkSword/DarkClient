@@ -195,6 +195,78 @@ fn binding_targets_reach_methods_fields_and_constructors() {
     ));
 }
 
+#[test]
+fn self_check_finds_members_without_initializing_classes() {
+    use mc_runtime::{BindingCheck, CheckKind};
+
+    const LOUD: &str = "com/darkclient/fixture/Loud";
+    let check = |kind, name, descriptor, is_static| {
+        BindingCheck::member(kind, LOUD, name, descriptor, is_static, false)
+    };
+    let present = [
+        BindingCheck::class(LOUD, false),
+        check(CheckKind::Method, "sum", "(IJ)J", false),
+        check(CheckKind::Method, "run", "()V", false),
+        check(
+            CheckKind::Method,
+            "create",
+            "()Lcom/darkclient/fixture/Sample;",
+            true,
+        ),
+        check(CheckKind::Constructor, "<init>", "(I)V", false),
+        check(CheckKind::Field, "counter", "I", false),
+        check(CheckKind::Field, "ratio", "D", false),
+        check(CheckKind::Field, "loudInitialized", "Z", true),
+    ];
+    let absent = [
+        check(CheckKind::Method, "sum", "(IJ)J", true),
+        check(CheckKind::Method, "run", "(Lno/Such;)V", false),
+        check(CheckKind::Constructor, "<init>", "()V", false),
+        check(CheckKind::Field, "ratio", "I", false),
+        BindingCheck::class("com/darkclient/fixture/Nope", false),
+        BindingCheck::member(CheckKind::Method, "org/lwjgl/Nope", "x", "()V", false, true),
+    ];
+
+    let runtime = runtime();
+    let report = runtime.verify(&present).unwrap();
+    assert_eq!(report.checked, present.len());
+    assert!(report.missing.is_empty(), "{:?}", report.missing);
+
+    let report = runtime.verify(&absent).unwrap();
+    assert_eq!(report.missing.len(), 5, "{:?}", report.missing);
+    assert_eq!(report.absent, ["org/lwjgl/Nope"]);
+    assert!(report.missing[1]
+        .ends_with("(java.lang.TypeNotPresentException: Type no.Such not present)"));
+
+    let mut env = runtime.env().unwrap();
+    let initialized = env
+        .get_static_field(SAMPLE, "loudInitialized", "Z")
+        .unwrap()
+        .z()
+        .unwrap();
+    assert!(!initialized, "the self-check ran a static initializer");
+
+    // FindClass does initialize: the flag above can tell.
+    env.find_class(LOUD).unwrap();
+    let initialized = env.get_static_field(SAMPLE, "loudInitialized", "Z");
+    assert!(initialized.unwrap().z().unwrap());
+}
+
+#[test]
+fn self_check_reports_what_the_fixture_lacks() {
+    runtime();
+    let report = mc_bindings::verify().unwrap();
+    assert!(report.checked > 100);
+    let missing = |what: &str| report.missing.iter().any(|m| m.starts_with(what));
+    assert!(missing("net/minecraft/client/Minecraft.getDeltaTracker()"));
+    assert!(!missing("net/minecraft/client/Minecraft.player:"));
+    assert!(!missing("net/minecraft/client/Minecraft.getInstance()"));
+    assert!(!report
+        .missing
+        .iter()
+        .any(|m| m == "net/minecraft/client/Minecraft"));
+}
+
 fn new_object(class: &str) -> mc_bindings::Object {
     let mut env = jvm().attach_current_thread_as_daemon().unwrap();
     let local = env.new_object(class, "()V", &[]).unwrap();
