@@ -317,6 +317,7 @@ fn draw_module_row(ui: &mut Ui, name: &str, arc: &ModuleArc, registry: &ModuleMa
     let id = module.get_module_data().id;
 
     let (rect, response) = ui.allocate_exact_size(Vec2::new(PANEL_W, ROW_H), Sense::click());
+    let response = response.on_hover_text(module.get_module_data().description.as_str());
     let arrow_zone = Rect::from_min_size(
         Pos2::new(rect.max.x - 24.0, rect.min.y),
         Vec2::new(24.0, ROW_H),
@@ -381,17 +382,9 @@ fn draw_module_row(ui: &mut Ui, name: &str, arc: &ModuleArc, registry: &ModuleMa
     if arrow_response.clicked() || response.secondary_clicked() {
         crate::config::set_expanded(id, !expanded);
     } else if response.clicked() {
-        let next = !enabled;
-        module.get_module_data_mut().set_enabled(next);
-        // Start/stop immediately only when in a world; at the menu the flag
-        // just arms the module for the next world entry.
-        if crate::state::client().modules.is_active() {
-            let _ = if next {
-                module.on_start()
-            } else {
-                module.on_stop()
-            };
-        }
+        crate::state::client()
+            .modules
+            .set_enabled(&mut module, !enabled);
     }
 
     // --- chevron + settings ---

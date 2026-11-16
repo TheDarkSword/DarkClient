@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
-use log::error;
+use log::{error, info};
 
 use crate::module::{KeyboardKey, Module, ModuleId, ModuleSetting, ModuleType};
 use crate::net::packet::{Packet, PacketAction};
@@ -31,6 +31,21 @@ pub struct ModuleRegistry {
     /// player. At the main menu, or while the player is dead on the respawn
     /// screen, modules stay armed (`enabled`) but inactive.
     active: AtomicBool,
+    /// The last tick error of each failing module, so it is logged once
+    /// rather than every tick.
+    failing: DashMap<ModuleId, String>,
+}
+
+/// Runs `on_start` or `on_stop`, logging a failure under the module's name.
+fn start_or_stop(module: &dyn Module, start: bool) {
+    let (phase, result) = if start {
+        ("on_start", module.on_start())
+    } else {
+        ("on_stop", module.on_stop())
+    };
+    if let Err(e) = result {
+        error!("{}: {phase} failed: {e}", module.get_module_data().name());
+    }
 }
 
 impl ModuleRegistry {
@@ -68,13 +83,21 @@ impl ModuleRegistry {
             let Ok(mut module) = entry.value().lock() else {
                 continue;
             };
-            if module.get_module_data().enabled && self.is_active() {
-                let _ = module.on_stop();
+            if module.get_module_data().enabled {
+                self.set_enabled(&mut module, false);
             }
             let data = module.get_module_data_mut();
             data.key_bind = defaults.key_bind;
             data.settings = defaults.settings.clone();
-            data.enabled = false;
+        }
+    }
+
+    /// Arms or disarms a module. It starts or stops right away only while
+    /// modules are active; otherwise on the next transition.
+    pub fn set_enabled(&self, module: &mut ModuleType, enabled: bool) {
+        module.get_module_data_mut().set_enabled(enabled);
+        if self.is_active() {
+            start_or_stop(module.as_ref(), enabled);
         }
     }
 
@@ -91,22 +114,17 @@ impl ModuleRegistry {
         if self.active.swap(active, Ordering::SeqCst) == active {
             return; // no transition
         }
+        if active {
+            info!("Modules active: in a world with a living player");
+        } else {
+            info!("Modules inactive: no world, or the player is dead");
+        }
         for handle in self.handles() {
             let Ok(module) = handle.lock() else {
                 continue;
             };
-            if !module.get_module_data().enabled {
-                continue;
-            }
-            let result = if active {
-                module.on_start()
-            } else {
-                module.on_stop()
-            };
-            if let Err(e) = result {
-                let name = module.get_module_data().name();
-                let verb = if active { "start" } else { "stop" };
-                error!("module '{name}' failed to {verb} on world transition: {e}");
+            if module.get_module_data().enabled {
+                start_or_stop(module.as_ref(), active);
             }
         }
     }
@@ -140,14 +158,26 @@ impl ModuleRegistry {
             let Ok(module) = handle.lock() else {
                 continue;
             };
-            if !module.get_module_data().enabled {
+            let data = module.get_module_data();
+            if !data.enabled {
                 continue;
             }
-            if let Err(e) = module.on_tick() {
-                let name = module.get_module_data().name();
-                error!("module '{name}' tick failed, stopping it: {e}");
-                if let Err(e) = module.on_stop() {
-                    error!("module '{name}' also failed to stop: {e}");
+            let Err(e) = module.on_tick() else {
+                self.failing.remove(&data.id);
+                continue;
+            };
+            let message = e.to_string();
+            let repeated = self
+                .failing
+                .get(&data.id)
+                .is_some_and(|last| *last == message);
+            if !repeated {
+                error!("{}: on_tick failed, stopping it: {message}", data.name());
+                self.failing.insert(data.id, message);
+            }
+            if let Err(e) = module.on_stop() {
+                if !repeated {
+                    error!("{}: on_stop failed: {e}", data.name());
                 }
             }
         }

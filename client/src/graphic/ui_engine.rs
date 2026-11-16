@@ -1,4 +1,5 @@
 use crate::cleanup_client;
+use crate::error::Result;
 use crate::graphic::gl_state::GlStateGuard;
 use crate::graphic::input::{GUI_OPEN, MOUSE_STATE, PENDING_EVENTS};
 use egui::{ClippedPrimitive, Context, TexturesDelta};
@@ -148,10 +149,10 @@ pub fn gather_egui_inputs(
 /// Fills the empty `Paste` placeholders the input backend queued for Ctrl+V
 /// with the clipboard text, read here on the render thread.
 /// Through Minecraft, so it works on GLFW and SDL alike.
-fn read_clipboard() -> mc_bindings::Result<String> {
-    crate::state::minecraft()
+fn read_clipboard() -> Result<String> {
+    Ok(crate::state::minecraft()
         .keyboard_handler()?
-        .get_clipboard()
+        .get_clipboard()?)
 }
 
 /// A whole color pasted while a color picker is open goes to that picker
@@ -258,23 +259,13 @@ pub fn call_panic() {
     // while they still hold the state the user actually chose.
     crate::config::save();
 
-    // A module is only running — and so only needs stopping — while active.
-    let world_active = crate::state::client().modules.is_active();
-    for handle in crate::state::client().modules.handles() {
+    let modules = &crate::state::client().modules;
+    for handle in modules.handles() {
         let Ok(mut module) = handle.lock() else {
             continue;
         };
         if module.get_module_data().enabled {
-            module.get_module_data_mut().set_enabled(false);
-            if world_active {
-                if let Err(e) = module.on_stop() {
-                    log::error!(
-                        "Failed to stop module {} on panic: {}",
-                        module.get_module_data().name(),
-                        e
-                    );
-                }
-            }
+            modules.set_enabled(&mut module, false);
         }
     }
     cleanup_client();

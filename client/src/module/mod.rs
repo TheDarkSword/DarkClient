@@ -1,3 +1,4 @@
+use crate::error::Result;
 use std::fmt::Debug;
 
 pub mod combat;
@@ -10,7 +11,6 @@ pub mod world;
 
 pub type ModuleType = Box<dyn Module + Send + Sync>;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ModuleCategory {
     Combat,
@@ -22,7 +22,6 @@ pub enum ModuleCategory {
 }
 
 impl ModuleCategory {
-    #[allow(dead_code)]
     pub fn display_name(&self) -> &str {
         match self {
             ModuleCategory::Combat => "Combat",
@@ -99,16 +98,13 @@ impl ModuleId {
 #[derive(Debug, Clone)]
 pub struct ModuleData {
     pub id: ModuleId,
-    #[allow(dead_code)]
     pub description: String,
-    #[allow(dead_code)]
     pub category: ModuleCategory,
     pub key_bind: KeyboardKey,
     pub enabled: bool,
     pub settings: Vec<ModuleSetting>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum ModuleSetting {
     Toggle {
@@ -121,6 +117,8 @@ pub enum ModuleSetting {
         min: f32,
         max: f32,
     },
+    // No module has a mode setting yet; the GUI and the config handle it.
+    #[allow(dead_code)]
     Choice {
         name: String,
         value: usize,
@@ -153,22 +151,10 @@ impl ModuleSetting {
         }
     }
 
-    pub fn set_slider_value(&mut self, new_value: f32) {
-        if let ModuleSetting::Slider { value, .. } = self {
-            *value = new_value;
-        }
-    }
-
     pub fn get_toggle_value(&self) -> Option<bool> {
         match self {
             ModuleSetting::Toggle { value, .. } => Some(*value),
             _ => None,
-        }
-    }
-
-    pub fn set_toggle_value(&mut self, new_value: bool) {
-        if let ModuleSetting::Toggle { value, .. } = self {
-            *value = new_value;
         }
     }
 }
@@ -183,19 +169,15 @@ impl ModuleData {
         self.enabled = enabled;
     }
 
-    pub fn get_setting_mut(&mut self, name: &str) -> Option<&mut ModuleSetting> {
-        self.settings.iter_mut().find(|s| s.name() == name)
-    }
-
     pub fn get_setting(&self, name: &str) -> Option<&ModuleSetting> {
         self.settings.iter().find(|s| s.name() == name)
     }
 }
 
 pub trait Module: Debug + Send + Sync {
-    fn on_start(&self) -> anyhow::Result<()>;
-    fn on_stop(&self) -> anyhow::Result<()>;
-    fn on_tick(&self) -> anyhow::Result<()>;
+    fn on_start(&self) -> Result<()>;
+    fn on_stop(&self) -> Result<()>;
+    fn on_tick(&self) -> Result<()>;
 
     /// Inspects — and may modify — a packet passing through the connection.
     /// Only enabled modules are called. Mutate `packet` in place to rewrite it;
@@ -215,7 +197,6 @@ pub trait Module: Debug + Send + Sync {
 // lwjgl key mapping
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum KeyboardKey {
     KeyNone = -1,
     KeyEscape = 256,

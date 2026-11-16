@@ -9,7 +9,7 @@ use crate::game::prelude::*;
 use crate::graphic::platform;
 use crate::{gl, state, RUNNING};
 use ilhook::x64::{CallbackOption, HookFlags, HookPoint, HookType, Hooker, Registers};
-use log::info;
+use log::{info, warn};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -18,7 +18,9 @@ static GL_LOADED: AtomicBool = AtomicBool::new(false);
 
 /// Wrapper that lets an `ilhook` handle cross thread boundaries. Dropping the
 /// inner `HookPoint` restores the patched bytes, i.e. removes the hook.
-pub struct HookHandle(HookPoint);
+pub struct HookHandle {
+    _hook: HookPoint,
+}
 
 unsafe impl Send for HookHandle {}
 unsafe impl Sync for HookHandle {}
@@ -86,26 +88,21 @@ fn check_tick() {
     // down while the player is dead on the respawn screen — a cheat still
     // acting then is an instant ban on most servers — and reactivate once the
     // player respawns. `set_active` starts/stops them on each transition.
-    let mc = state::minecraft();
-    let in_world = matches!(mc.level(), Ok(Some(_)));
-    let player = match mc.player() {
-        Ok(Some(player)) => Some(player),
-        Ok(None) | Err(_) => None,
-    };
-    let alive = player
-        .as_ref()
-        .is_some_and(|player| player.is_alive().unwrap_or(false));
-    state::client().modules.set_active(in_world && alive);
-    if !in_world || !alive {
-        return;
-    }
+    let player = living_player().unwrap_or_else(|e| {
+        crate::error::warn_changed("frame: reading the player failed", &e);
+        None
+    });
+    state::client().modules.set_active(player.is_some());
     let Some(player) = player else {
         return;
     };
 
     let tick_count = match player.tick_count() {
         Ok(count) => count,
-        Err(_) => return,
+        Err(e) => {
+            crate::error::warn_changed("frame: reading the tick count failed", &e);
+            return;
+        }
     };
 
     // Any change is a new tick: a respawned or re-joined player is a new
@@ -118,6 +115,18 @@ fn check_tick() {
     }
 }
 
+/// The player, when in a world and alive.
+fn living_player() -> Result<Option<LocalPlayer>> {
+    let mc = state::minecraft();
+    if mc.level()?.is_none() {
+        return Ok(None);
+    }
+    let Some(player) = mc.player()? else {
+        return Ok(None);
+    };
+    Ok(player.is_alive()?.then_some(player))
+}
+
 // --- Hook installation -----------------------------------------------------
 
 /// Stores a freshly built hook. Idempotent across re-injection: the previous
@@ -127,7 +136,7 @@ fn store_hook(hook: HookPoint, label: &str) {
     if guard.is_some() {
         info!("Replacing the existing buffer-swap hook.");
     }
-    *guard = Some(HookHandle(hook));
+    *guard = Some(HookHandle { _hook: hook });
     info!(">>> HOOK ACTIVE ON: {} <<<", label);
 }
 
@@ -145,7 +154,7 @@ fn hooker_for(target_addr: usize) -> Hooker {
 /// Installs the hook that drives the overlay: the Vulkan present hook when
 /// the game renders through Vulkan, otherwise the buffer-swap hook, trying
 /// every platform-provided target until one hooks successfully.
-pub fn install_hooks() -> anyhow::Result<()> {
+pub fn install_hooks() -> Result<()> {
     if crate::graphic::vulkan::install()? {
         return Ok(());
     }
@@ -158,12 +167,10 @@ pub fn install_hooks() -> anyhow::Result<()> {
                 store_hook(hook, &target.label);
                 return Ok(());
             }
-            Err(e) => info!("hook install failed on {}: {e:?}", target.label),
+            Err(e) => warn!("hook install failed on {}: {e:?}", target.label),
         }
     }
-    Err(anyhow::anyhow!(
-        "no buffer-swap target could be hooked on this platform"
-    ))
+    Err(Error::NoFrameHook)
 }
 
 /// Removes the active frame hook, restoring the original bytes or pointer.

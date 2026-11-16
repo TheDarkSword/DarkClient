@@ -1,6 +1,5 @@
 //! Client-library lifecycle: load, hot-reload and drop.
 
-use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
@@ -9,9 +8,26 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use libloading::Library;
 use log::{error, info, warn};
 use protocol::{client_abi, Response};
+use thiserror::Error;
 
-/// Internal result type — agent-side errors are only ever logged.
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
+#[derive(Debug, Error)]
+enum LoadError {
+    #[error("client library not found at {0}")]
+    NotFound(PathBuf),
+    #[error("client library path {0} has no file name")]
+    NoFileName(PathBuf),
+    #[error("could not copy the client library to {to}: {source}")]
+    Copy { to: PathBuf, source: std::io::Error },
+    #[error("could not load {path}: {source}")]
+    Load {
+        path: PathBuf,
+        source: libloading::Error,
+    },
+    #[error("the client library does not export start_client (outdated build?)")]
+    NoStartSymbol,
+}
+
+type Result<T, E = LoadError> = std::result::Result<T, E>;
 
 /// The currently loaded client library, if any.
 static CLIENT_LIBRARY: OnceLock<Mutex<Option<Library>>> = OnceLock::new();
@@ -68,7 +84,7 @@ pub fn shutdown() {
 /// so concurrent reloads serialize safely.
 fn load(path: &Path, force: bool) -> Result<Response> {
     if !path.exists() {
-        return Err(format!("client library not found at {}", path.display()).into());
+        return Err(LoadError::NotFound(path.to_path_buf()));
     }
 
     let mut slot = lock();
@@ -81,7 +97,10 @@ fn load(path: &Path, force: bool) -> Result<Response> {
 
     info!("loading client library {}", path.display());
     // SAFETY: loading a trusted shared library built by this project.
-    let library = unsafe { Library::new(path)? };
+    let library = unsafe { Library::new(path) }.map_err(|source| LoadError::Load {
+        path: path.to_path_buf(),
+        source,
+    })?;
 
     let response = start(&library, force)?;
     match &response {
@@ -106,7 +125,7 @@ fn start(library: &Library, force: bool) -> Result<Response> {
     // SAFETY: the symbol is the client's `start_client`, whose signature the
     // client asserts against `client_abi::StartFn` at compile time.
     let start_fn = unsafe { library.get::<client_abi::StartFn>(client_abi::START_SYMBOL) }
-        .map_err(|_| "the client library does not export start_client (outdated build?)")?;
+        .map_err(|_| LoadError::NoStartSymbol)?;
     let mut report = [0u8; client_abi::REPORT_CAPACITY];
     // SAFETY: `report` is valid for `REPORT_CAPACITY` bytes of writes.
     let status = unsafe { start_fn(force, report.as_mut_ptr(), report.len()) };
@@ -133,7 +152,7 @@ fn cleanup(library: &Library) {
 fn copy_to_temp(source: &Path) -> Result<PathBuf> {
     let file_name = source
         .file_name()
-        .ok_or("client library path has no file name")?
+        .ok_or_else(|| LoadError::NoFileName(source.to_path_buf()))?
         .to_string_lossy()
         .into_owned();
 
@@ -146,7 +165,10 @@ fn copy_to_temp(source: &Path) -> Result<PathBuf> {
     let mut temp = std::env::temp_dir();
     temp.push(format!("dark_client_{stamp}_{file_name}"));
 
-    std::fs::copy(source, &temp)?;
+    std::fs::copy(source, &temp).map_err(|source| LoadError::Copy {
+        to: temp.clone(),
+        source,
+    })?;
     info!("client library copied to {}", temp.display());
     Ok(temp)
 }

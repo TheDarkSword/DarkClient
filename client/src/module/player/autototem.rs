@@ -33,15 +33,15 @@ impl AutoTotemModule {
 }
 
 impl Module for AutoTotemModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         let Some(player) = minecraft().player()? else {
             return Ok(());
         };
@@ -90,7 +90,7 @@ impl Module for AutoTotemModule {
 }
 
 /// Whether `slot` of `inventory` holds the item `item`.
-fn slot_holds(inventory: &Inventory, slot: i32, item: &Item) -> anyhow::Result<bool> {
+fn slot_holds(inventory: &Inventory, slot: i32, item: &Item) -> Result<bool> {
     let stack = inventory.get_item(slot)?;
     if stack.is_empty()? {
         return Ok(false);
@@ -99,7 +99,7 @@ fn slot_holds(inventory: &Inventory, slot: i32, item: &Item) -> anyhow::Result<b
 }
 
 /// The first hotbar / main-storage slot holding a totem, if any.
-fn find_totem(inventory: &Inventory, totem: &Item) -> anyhow::Result<Option<i32>> {
+fn find_totem(inventory: &Inventory, totem: &Item) -> Result<Option<i32>> {
     for slot in 0..STORAGE_SLOTS {
         if slot_holds(inventory, slot, totem)? {
             return Ok(Some(slot));

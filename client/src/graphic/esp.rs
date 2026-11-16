@@ -596,14 +596,14 @@ fn read_partial_tick(state: &mut EspState) -> f64 {
     if state.partial_tick_unavailable {
         return 1.0;
     }
-    if state.delta_tracker.is_none() {
-        state.delta_tracker = minecraft().get_delta_tracker().ok();
-    }
-    let read = state
-        .delta_tracker
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no DeltaTracker"))
-        .and_then(|tracker| Ok(tracker.get_game_time_delta_partial_tick(true)?));
+    let read = match state.delta_tracker.as_ref() {
+        Some(tracker) => tracker.get_game_time_delta_partial_tick(true),
+        None => minecraft().get_delta_tracker().and_then(|tracker| {
+            let t = tracker.get_game_time_delta_partial_tick(true);
+            state.delta_tracker = Some(tracker);
+            t
+        }),
+    };
     match read {
         Ok(t) if t.is_finite() => (t as f64).clamp(0.0, 1.0),
         Ok(_) => 1.0,
@@ -662,7 +662,7 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
         return None;
     }
 
-    let read = (|| -> anyhow::Result<(V3, f32, f32)> {
+    let read = (|| -> Result<(V3, f32, f32)> {
         Ok((camera.position()?.into(), camera.y_rot()?, camera.x_rot()?))
     })();
 
@@ -754,11 +754,7 @@ fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
 }
 
 /// Walks `Level.entitiesForRendering()` once, classifying players and mobs.
-fn gather_entities(
-    range_sq: f64,
-    want_player: bool,
-    want_mob: bool,
-) -> anyhow::Result<Vec<EntityTarget>> {
+fn gather_entities(range_sq: f64, want_player: bool, want_mob: bool) -> Result<Vec<EntityTarget>> {
     let mc = minecraft();
     let (Some(world), Some(player)) = (mc.level()?, mc.player()?) else {
         return Ok(Vec::new());
@@ -856,7 +852,7 @@ fn read_health(entity: &Entity) -> Option<(f32, f32)> {
 }
 
 /// Scans loaded chunks around the player for container block entities.
-fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
+fn gather_chests() -> Result<Vec<ChestTarget>> {
     let mc = minecraft();
     let (Some(world), Some(player)) = (mc.level()?, mc.player()?) else {
         return Ok(Vec::new());
@@ -877,12 +873,7 @@ fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
 }
 
 /// Adds every container block entity of one chunk to `out`.
-fn scan_chunk(
-    world: &ClientLevel,
-    cx: i32,
-    cz: i32,
-    out: &mut Vec<ChestTarget>,
-) -> anyhow::Result<()> {
+fn scan_chunk(world: &ClientLevel, cx: i32, cz: i32, out: &mut Vec<ChestTarget>) -> Result<()> {
     let Some(chunk) = world.get_chunk(cx, cz)? else {
         return Ok(());
     };

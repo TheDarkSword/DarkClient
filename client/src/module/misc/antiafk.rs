@@ -56,18 +56,18 @@ impl AntiAfkModule {
 }
 
 impl Module for AntiAfkModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         // Start the interval now, so the first nudge waits a full interval.
         *self.last_action.lock().unwrap() = Some(Instant::now());
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         *self.last_action.lock().unwrap() = None;
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         let interval = Duration::from_secs_f32(self.slider("Interval", 6.0).max(0.5));
         let now = Instant::now();
         {
@@ -92,7 +92,7 @@ impl Module for AntiAfkModule {
 
         let yaw = player.get_y_rot()?;
         let pitch = player.get_x_rot()?;
-        Ok(player.set_rotation(yaw + delta, pitch)?)
+        player.set_rotation(yaw + delta, pitch)
     }
 
     fn get_module_data(&self) -> &ModuleData {

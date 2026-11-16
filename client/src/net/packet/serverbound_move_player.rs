@@ -1,6 +1,7 @@
 //! The packet is abstract: `Pos`, `PosRot`, `Rot` or `StatusOnly`, depending on
 //! what it carries, so it's rebuilt as the matching subclass.
 
+use crate::error::Result;
 use mc_bindings::{
     JavaClass, MovePlayerPos, MovePlayerPosRot, MovePlayerRot, MovePlayerStatusOnly, Object,
 };
@@ -21,7 +22,7 @@ pub struct ServerboundMovePlayerPacket {
 impl ServerboundMovePlayerPacket {
     pub fn read(
         packet: &mc_bindings::ServerboundMovePlayerPacket,
-    ) -> anyhow::Result<ServerboundMovePlayerPacket> {
+    ) -> Result<ServerboundMovePlayerPacket> {
         Ok(ServerboundMovePlayerPacket {
             x: packet.get_x(0.0)?,
             y: packet.get_y(0.0)?,
@@ -35,7 +36,7 @@ impl ServerboundMovePlayerPacket {
         })
     }
 
-    pub fn to_object(self) -> anyhow::Result<Object> {
+    pub fn to_object(self) -> Result<Object> {
         let (on_ground, collision) = (self.on_ground, self.horizontal_collision);
         let packet = match (self.has_position, self.has_rotation) {
             (true, true) => MovePlayerPosRot::new(

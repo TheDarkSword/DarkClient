@@ -39,7 +39,7 @@ impl FullbrightModule {
 }
 
 impl Module for FullbrightModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         let gamma = minecraft().options()?.gamma()?;
         let current = gamma.get_double().unwrap_or(DEFAULT_GAMMA);
         // A value above the slider range means Fullbright is already applied
@@ -54,7 +54,7 @@ impl Module for FullbrightModule {
         gamma.force_double(FULLBRIGHT_GAMMA)
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         let original = self
             .original_gamma
             .lock()
@@ -64,7 +64,7 @@ impl Module for FullbrightModule {
         minecraft().options()?.gamma()?.force_double(original)
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         // Re-assert each tick so opening the video-settings slider — which
         // would clamp gamma back into `0..1` — cannot quietly undo Fullbright.
         minecraft()

@@ -177,10 +177,17 @@ fn binding_targets_reach_methods_fields_and_constructors() {
     let fresh = cx.construct(&NEW, &[]).unwrap();
     assert_eq!(cx.get(&COUNTER, &fresh).unwrap().i().unwrap(), 7);
 
-    assert!(matches!(
-        cx.call(&FAIL, &sample, &[]),
-        Err(Error::Exception { name: "fail", .. })
-    ));
+    match cx.call(&FAIL, &sample, &[]) {
+        Err(Error::Exception {
+            name: "fail",
+            exception,
+            ..
+        }) => assert_eq!(
+            exception,
+            "java.lang.IllegalStateException: fixture failure"
+        ),
+        other => panic!("expected the fixture's exception, got {other:?}"),
+    }
     assert_eq!(
         sum(&mut cx),
         42,

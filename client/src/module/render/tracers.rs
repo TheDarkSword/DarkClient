@@ -1,3 +1,4 @@
+use crate::error::Result;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 
 /// Draws a line from the bottom of the screen to every nearby entity.
@@ -46,15 +47,15 @@ impl TracersModule {
 }
 
 impl Module for TracersModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         Ok(())
     }
 

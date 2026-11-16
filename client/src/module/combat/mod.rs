@@ -13,12 +13,7 @@ use rotation::Rotation;
 /// — when the target is within `max_fov` degrees of the current look. Returns
 /// the angle, in degrees, currently between the look direction and the target,
 /// which combat modules use to decide when they are aligned enough to attack.
-pub fn look_at(
-    player: &LocalPlayer,
-    target: &Entity,
-    speed: f32,
-    max_fov: f32,
-) -> anyhow::Result<f32> {
+pub fn look_at(player: &LocalPlayer, target: &Entity, speed: f32, max_fov: f32) -> Result<f32> {
     let eye = player.get_eye_position()?;
     let feet = target.position()?;
     let height = target.get_bb_height()? as f64;

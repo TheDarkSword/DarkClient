@@ -13,7 +13,6 @@ log.workspace = true
 simplelog.workspace = true
 jni.workspace = true
 serde.workspace = true
-anyhow.workspace = true
 thiserror.workspace = true
 dashmap.workspace = true
 libc.workspace = true

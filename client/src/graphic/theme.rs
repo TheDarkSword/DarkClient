@@ -10,8 +10,6 @@ use egui::{Color32, Context, Margin, Rounding, Stroke, Style, Vec2, Visuals};
 
 /// Brand color: highlights, enabled modules, headers, focus rings.
 pub const ACCENT: Color32 = Color32::from_rgb(38, 198, 156);
-/// Muted accent for secondary emphasis.
-pub const ACCENT_DIM: Color32 = Color32::from_rgb(26, 120, 100);
 
 /// Backgrounds, darkest to lightest.
 pub const BASE: Color32 = Color32::from_rgb(17, 18, 22);

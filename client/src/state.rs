@@ -6,38 +6,30 @@ use std::sync::OnceLock;
 
 use jni::JNIEnv;
 use mc_runtime::Runtime;
-use thiserror::Error;
 
 use mc_bindings::{Minecraft, Window};
 
+use crate::error::{Error, Result};
 use crate::module::registry::ModuleRegistry;
 
 static CLIENT: OnceLock<Client> = OnceLock::new();
 
-#[derive(Debug, Error)]
-pub enum ClientError {
-    #[error("the client is already initialized")]
-    AlreadyInitialized,
-    #[error(transparent)]
-    Init(#[from] anyhow::Error),
-}
-
-pub fn init() -> Result<(), ClientError> {
+#[cfg(test)]
+pub fn init() -> Result<()> {
     init_runtime()?;
     init_client()
 }
 
 /// Attaches to the game and reads its version, so the caller can decide
 /// whether to go on.
-pub fn init_runtime() -> Result<&'static Runtime, ClientError> {
-    Ok(Runtime::install().map_err(anyhow::Error::from)?)
+pub fn init_runtime() -> Result<&'static Runtime> {
+    Ok(Runtime::install()?)
 }
 
-pub fn init_client() -> Result<(), ClientError> {
+pub fn init_client() -> Result<()> {
     CLIENT
         .set(Client::new()?)
-        .map_err(|_| ClientError::AlreadyInitialized)?;
-    Ok(())
+        .map_err(|_| Error::AlreadyInitialized)
 }
 
 #[inline]
@@ -62,7 +54,7 @@ pub fn window() -> &'static Window {
 }
 
 /// This thread's JNI environment, attaching it the first time.
-pub fn env() -> anyhow::Result<JNIEnv<'static>> {
+pub fn env() -> Result<JNIEnv<'static>> {
     Ok(mc_runtime::runtime()?.env()?)
 }
 
@@ -83,9 +75,9 @@ pub struct Client {
 }
 
 impl Client {
-    fn new() -> Result<Client, ClientError> {
-        let minecraft = Minecraft::get_instance().map_err(anyhow::Error::from)?;
-        let window = minecraft.get_window().map_err(anyhow::Error::from)?;
+    fn new() -> Result<Client> {
+        let minecraft = Minecraft::get_instance()?;
+        let window = minecraft.get_window()?;
         Ok(Client {
             minecraft,
             window,

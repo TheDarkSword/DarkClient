@@ -1,3 +1,4 @@
+use crate::error::Result;
 use crate::module::combat::aura::{AuraTarget, BaseAura};
 use crate::module::{KeyboardKey, Module, ModuleData, ModuleId};
 
@@ -20,15 +21,15 @@ impl KillAuraModule {
 }
 
 impl Module for KillAuraModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         self.aura.on_start()
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         self.aura.on_stop()
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         self.aura.on_tick()
     }
 

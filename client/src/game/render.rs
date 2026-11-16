@@ -1,4 +1,5 @@
-use mc_bindings::{GameRenderer, Result};
+use crate::error::Result;
+use mc_bindings::GameRenderer;
 
 /// Inputs of `GameRenderer.bobHurt` / `bobView` for the last frame.
 #[derive(Debug, Clone, Copy, Default)]

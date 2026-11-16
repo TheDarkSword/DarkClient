@@ -4,6 +4,7 @@
 pub mod clientbound_player_info_update;
 pub mod serverbound_move_player;
 
+use crate::error::{Error, Result};
 use clientbound_player_info_update::ClientboundPlayerInfoUpdatePacket;
 use jni::objects::JObject;
 pub use mc_bindings::ClientboundSetEntityMotionPacket;
@@ -28,20 +29,22 @@ pub enum PacketAction {
 }
 
 // Checked on the local ref, so packets nobody handles never get a global one.
-fn is<T: JavaType>(packet: &JObject) -> anyhow::Result<bool> {
+fn is<T: JavaType>(packet: &JObject) -> Result<bool> {
     Ok(Cx::current()?.is_instance_of(packet, T::class_name()?)?)
 }
 
-fn handle(packet: &JObject) -> anyhow::Result<Object> {
-    Object::from_local(packet)?.ok_or_else(|| anyhow::anyhow!("null packet"))
+fn handle(packet: &JObject) -> Result<Object> {
+    Object::from_local(packet)?.ok_or(Error::Null("packet"))
 }
 
 impl Packet {
-    pub fn from_outbound(packet: &JObject) -> anyhow::Result<Option<Packet>> {
+    pub fn from_outbound(packet: &JObject) -> Result<Option<Packet>> {
         if is::<mc_bindings::ServerboundMovePlayerPacket>(packet)? {
-            let packet: mc_bindings::ServerboundMovePlayerPacket = handle(packet)?
-                .cast()?
-                .ok_or_else(|| anyhow::anyhow!("not a ServerboundMovePlayerPacket"))?;
+            let packet: mc_bindings::ServerboundMovePlayerPacket =
+                handle(packet)?.cast()?.ok_or(Error::WrongType {
+                    what: "outbound packet",
+                    expected: "ServerboundMovePlayerPacket",
+                })?;
             return Ok(Some(Packet::ServerboundMovePlayer(
                 ServerboundMovePlayerPacket::read(&packet)?,
             )));
@@ -49,7 +52,7 @@ impl Packet {
         Ok(None)
     }
 
-    pub fn from_inbound(packet: &JObject) -> anyhow::Result<Option<Packet>> {
+    pub fn from_inbound(packet: &JObject) -> Result<Option<Packet>> {
         if is::<ClientboundSetEntityMotionPacket>(packet)? {
             return Ok(Some(Packet::ClientboundSetEntityMotion(
                 ClientboundSetEntityMotionPacket::from_object(&handle(packet)?)?,
@@ -65,7 +68,7 @@ impl Packet {
         Ok(None)
     }
 
-    pub fn to_object(self) -> anyhow::Result<Object> {
+    pub fn to_object(self) -> Result<Object> {
         match self {
             Packet::ServerboundMovePlayer(packet) => packet.to_object(),
             Packet::ClientboundSetEntityMotion(packet) => Ok(packet.to_object()?),

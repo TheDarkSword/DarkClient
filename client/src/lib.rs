@@ -1,9 +1,6 @@
-// The framework exposes deliberate toolkit API (animation, theming,
-// notification) that is not all wired up to a caller yet.
-#![allow(dead_code)]
-
 extern crate jni;
 mod config;
+mod error;
 mod game;
 mod graphic;
 #[cfg(test)]

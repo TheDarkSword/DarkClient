@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
 use jni::objects::{
-    GlobalRef, JClass, JFieldID, JMethodID, JObject, JStaticFieldID, JStaticMethodID, JValue,
-    JValueOwned,
+    GlobalRef, JClass, JFieldID, JMethodID, JObject, JStaticFieldID, JStaticMethodID, JString,
+    JValue, JValueOwned,
 };
 use jni::signature::{JavaType, Primitive, ReturnType};
 use jni::sys::{jobject, jvalue};
@@ -112,6 +112,36 @@ impl Drop for Cx<'_> {
             let _ = self.env.delete_local_ref(unsafe { JObject::from_raw(raw) });
         }
     }
+}
+
+/// Clears the pending Java exception and returns its `toString()`, so a log
+/// says what the game threw. `None` when nothing was pending.
+pub fn take_exception(env: &mut JNIEnv) -> Option<String> {
+    if !env.exception_check().unwrap_or(false) {
+        return None;
+    }
+    let throwable = env.exception_occurred().ok();
+    let _ = env.exception_clear();
+    let Some(throwable) = throwable.filter(|throwable| !throwable.is_null()) else {
+        return Some("an unknown exception".to_owned());
+    };
+    let text = env
+        .call_method(&throwable, "toString", "()Ljava/lang/String;", &[])
+        .and_then(|value| value.l());
+    let message = match text {
+        Ok(text) if !text.is_null() => {
+            let text = JString::from(text);
+            let message = env.get_string(&text).map(String::from).ok();
+            let _ = env.delete_local_ref(text);
+            message
+        }
+        _ => {
+            let _ = env.exception_clear();
+            None
+        }
+    };
+    let _ = env.delete_local_ref(throwable);
+    Some(message.unwrap_or_else(|| "an exception whose toString() failed".to_owned()))
 }
 
 fn borrowed(class: &GlobalRef) -> JClass<'static> {
@@ -337,11 +367,17 @@ impl<'l> Cx<'l> {
         class: &'static str,
         name: &'static str,
     ) -> Error {
-        if matches!(error, jni::errors::Error::JavaException) {
-            let _ = self.env.exception_clear();
-            Error::Exception { class, name }
-        } else {
-            Error::Jni(error)
+        match take_exception(&mut self.env) {
+            Some(exception) => Error::Exception {
+                class,
+                name,
+                exception,
+            },
+            None => Error::Call {
+                class,
+                name,
+                source: error,
+            },
         }
     }
 

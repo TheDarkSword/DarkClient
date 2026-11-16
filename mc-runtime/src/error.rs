@@ -34,12 +34,19 @@ pub enum Error {
     },
     #[error("{class}: not one of the known enum constants")]
     UnknownConstant { class: &'static str },
-    #[error("{class}.{name} threw a Java exception")]
+    #[error("{class}.{name} threw {exception}")]
     Exception {
         class: &'static str,
         name: &'static str,
+        exception: String,
     },
-    #[error(transparent)]
+    #[error("{class}.{name}: {source}")]
+    Call {
+        class: &'static str,
+        name: &'static str,
+        source: jni::errors::Error,
+    },
+    #[error("JNI: {0}")]
     Jni(#[from] jni::errors::Error),
 }
 

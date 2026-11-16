@@ -1,3 +1,4 @@
+use crate::error::Result;
 use mc_bindings::{
     AbstractContainerScreen, ChatScreen, CraftingScreen, CreativeModeInventoryScreen,
     InventoryScreen, Minecraft, PauseScreen,
@@ -29,7 +30,7 @@ pub trait MinecraftExt {
 
 impl MinecraftExt for Minecraft {
     fn current_screen(&self) -> ScreenKind {
-        let read = || -> mc_bindings::Result<ScreenKind> {
+        let read = || -> Result<ScreenKind> {
             let Some(screen) = self.gui()?.screen()? else {
                 return Ok(ScreenKind::None);
             };

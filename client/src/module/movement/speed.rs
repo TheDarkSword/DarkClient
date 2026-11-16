@@ -52,15 +52,15 @@ impl SpeedModule {
 }
 
 impl Module for SpeedModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         let Some(player) = minecraft().player()? else {
             return Ok(());
         };

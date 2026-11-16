@@ -28,15 +28,15 @@ impl ScaffoldModule {
 }
 
 impl Module for ScaffoldModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         let minecraft = minecraft();
         // Stand down while a menu is open.
         if minecraft.current_screen().is_open() {

@@ -1,3 +1,4 @@
+use crate::error::Result;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
 use crate::net::packet::{Packet, PacketAction};
 
@@ -26,15 +27,15 @@ impl NoFallModule {
 }
 
 impl Module for NoFallModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         Ok(())
     }
 

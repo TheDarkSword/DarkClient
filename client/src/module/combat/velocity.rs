@@ -61,16 +61,16 @@ impl VelocityModule {
 }
 
 impl Module for VelocityModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         self.local_id.store(UNKNOWN_ID, Ordering::Relaxed);
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         // Refresh the cached player id; `handle_packet` reads it cross-thread.
         let id = match minecraft().player()? {
             Some(player) => player.get_id()?,

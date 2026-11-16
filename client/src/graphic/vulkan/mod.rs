@@ -10,7 +10,6 @@
 mod overlay;
 
 use crate::game::prelude::*;
-use anyhow::{anyhow, bail};
 use ash::vk;
 use ash::vk::Handle;
 use log::{error, info, warn};
@@ -44,10 +43,10 @@ static TEARDOWN_DONE: AtomicBool = AtomicBool::new(false);
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 /// `vkGetInstanceProcAddr` from the loader LWJGL itself uses.
-fn get_instance_proc_addr() -> anyhow::Result<vk::PFN_vkGetInstanceProcAddr> {
+fn get_instance_proc_addr() -> Result<vk::PFN_vkGetInstanceProcAddr> {
     let pointer = VK::get_function_provider()?.get_function_address("vkGetInstanceProcAddr")?;
     if pointer == 0 {
-        bail!("vkGetInstanceProcAddr not found");
+        return Err(Error::MissingVulkanFunction("vkGetInstanceProcAddr"));
     }
     // SAFETY: a non-null `vkGetInstanceProcAddr` from the Vulkan loader.
     Ok(unsafe { std::mem::transmute::<usize, vk::PFN_vkGetInstanceProcAddr>(pointer as usize) })
@@ -62,7 +61,7 @@ struct Discovered {
 }
 
 /// `None` under OpenGL, or before 26.2.
-fn discover() -> anyhow::Result<Option<Discovered>> {
+fn discover() -> Result<Option<Discovered>> {
     let frontend = match minecraft().window_surface() {
         Ok(frontend) => frontend,
         Err(mc_bindings::Error::Unavailable { .. }) => return Ok(None),
@@ -84,7 +83,7 @@ fn discover() -> anyhow::Result<Option<Discovered>> {
     let capabilities = queue.get_capabilities()?;
     let original_present = capabilities.vk_queue_present_khr()?;
     if original_present == 0 {
-        bail!("vkQueuePresentKHR is not loaded");
+        return Err(Error::MissingVulkanFunction("vkQueuePresentKHR"));
     }
     let device = queue.get_device()?;
     let physical_device = device.get_physical_device()?;
@@ -110,7 +109,7 @@ fn discover() -> anyhow::Result<Option<Discovered>> {
 }
 
 /// Points LWJGL's present entry back at `pointer`.
-fn set_present_pointer(capabilities: &VKCapabilitiesDevice, pointer: i64) -> anyhow::Result<()> {
+fn set_present_pointer(capabilities: &VKCapabilitiesDevice, pointer: i64) -> Result<()> {
     Ok(capabilities.set_vk_queue_present_khr(pointer)?)
 }
 
@@ -118,7 +117,7 @@ fn set_present_pointer(capabilities: &VKCapabilitiesDevice, pointer: i64) -> any
 
 /// Hooks presentation when the game renders through Vulkan. Returns
 /// `Ok(false)` — touching nothing — when it renders through OpenGL.
-pub fn install() -> anyhow::Result<bool> {
+pub fn install() -> Result<bool> {
     let Some(discovered) = discover()? else {
         return Ok(false);
     };
@@ -129,7 +128,7 @@ pub fn install() -> anyhow::Result<bool> {
     let capabilities = discovered.capabilities.clone();
     *HOOKED
         .lock()
-        .map_err(|_| anyhow!("Vulkan hook state poisoned"))? = Some(Hooked {
+        .map_err(|_| Error::Poisoned("Vulkan hook state"))? = Some(Hooked {
         capabilities: discovered.capabilities,
         surface: discovered.surface,
         handles: discovered.handles,
@@ -230,7 +229,7 @@ unsafe fn present(queue: vk::Queue, present_info: *const vk::PresentInfoKHR<'_>)
         }
         Ok(None) => original(queue, present_info),
         Err(e) => {
-            error!("Vulkan overlay disabled: {e:#}");
+            error!("Vulkan overlay disabled: {e}");
             hooked.disabled = true;
             original(queue, present_info)
         }
@@ -244,7 +243,7 @@ unsafe fn draw_overlay(
     hooked: &mut Hooked,
     queue: vk::Queue,
     info: &vk::PresentInfoKHR<'_>,
-) -> anyhow::Result<Option<vk::Semaphore>> {
+) -> Result<Option<vk::Semaphore>> {
     if info.swapchain_count != 1 {
         return Ok(None);
     }

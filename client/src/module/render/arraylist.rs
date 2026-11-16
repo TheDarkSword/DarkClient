@@ -1,3 +1,4 @@
+use crate::error::Result;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
 
 /// Shows the list of enabled modules in the top-right corner of the HUD.
@@ -26,15 +27,15 @@ impl ArrayListModule {
 }
 
 impl Module for ArrayListModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         Ok(())
     }
 

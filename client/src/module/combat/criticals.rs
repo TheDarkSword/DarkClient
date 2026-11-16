@@ -40,7 +40,7 @@ fn enabled() -> bool {
 /// player is hopped off the ground and the hit held ([`CritState::Charging`])
 /// until they are airborne and descending — the window in which a hit
 /// registers as a critical.
-pub fn prepare(player: &LocalPlayer) -> anyhow::Result<CritState> {
+pub fn prepare(player: &LocalPlayer) -> Result<CritState> {
     if !enabled() {
         return Ok(CritState::Ready);
     }
@@ -82,15 +82,15 @@ impl CriticalsModule {
 }
 
 impl Module for CriticalsModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         Ok(())
     }
 

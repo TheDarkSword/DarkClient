@@ -40,7 +40,7 @@ impl FlyModule {
     }
 }
 
-fn set_flight(enabled: bool, speed: f32) -> anyhow::Result<()> {
+fn set_flight(enabled: bool, speed: f32) -> Result<()> {
     if let Some(player) = minecraft().player()? {
         let abilities = player.get_abilities()?;
         abilities.set_flying(enabled)?;
@@ -51,15 +51,15 @@ fn set_flight(enabled: bool, speed: f32) -> anyhow::Result<()> {
 }
 
 impl Module for FlyModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         set_flight(true, self.fly_speed())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         set_flight(false, VANILLA_FLY_SPEED)
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         // Re-assert each tick so a server-sent abilities update cannot quietly
         // disable flight or reset the speed.
         set_flight(true, self.fly_speed())

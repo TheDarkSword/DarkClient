@@ -18,8 +18,11 @@ use std::time::Instant;
 /// Severity of a notification — drives its color and icon.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NotificationType {
+    // Only warnings are sent so far.
+    #[allow(dead_code)]
     Info,
     Warning,
+    #[allow(dead_code)]
     Alert,
 }
 

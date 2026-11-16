@@ -14,9 +14,10 @@
 
 pub mod packet;
 
+use crate::error::{Error, Result};
 use crate::net::packet::{Packet, PacketAction};
 use crate::state::{env, minecraft};
-use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
+use jni::objects::{GlobalRef, JClass, JObject, JValue};
 use jni::sys::jobject;
 use jni::{JNIEnv, NativeMethod};
 use mc_bindings::{ChannelPipeline, Connection, Object};
@@ -76,32 +77,33 @@ fn clear_pending_exception() {
     }
 }
 
-fn ensure_installed_inner() -> anyhow::Result<()> {
-    // Define + bind the handler class once.
-    {
-        let mut state = STATE.lock().unwrap();
-        if state.handler_class.is_none() {
-            if state.define_attempts >= MAX_DEFINE_ATTEMPTS {
-                return Ok(());
+/// Defines and binds the handler class the first time; `None` while that keeps failing.
+fn handler_class() -> Option<GlobalRef> {
+    let mut state = STATE.lock().unwrap();
+    if state.handler_class.is_none() && state.define_attempts < MAX_DEFINE_ATTEMPTS {
+        match define_handler() {
+            Ok(class) => {
+                log::info!("net: DarkChannelHandler defined and bound");
+                state.handler_class = Some(class);
+                state.define_attempts = 0;
             }
-            match define_handler() {
-                Ok(class) => {
-                    log::info!("net: DarkChannelHandler defined and bound");
-                    state.handler_class = Some(class);
-                    state.define_attempts = 0;
-                }
-                Err(error) => {
-                    state.define_attempts += 1;
-                    log::warn!(
-                        "net: handler definition failed (attempt {}/{}): {error}",
-                        state.define_attempts,
-                        MAX_DEFINE_ATTEMPTS
-                    );
-                    return Ok(());
-                }
+            Err(error) => {
+                state.define_attempts += 1;
+                log::warn!(
+                    "net: handler definition failed (attempt {}/{}): {error}",
+                    state.define_attempts,
+                    MAX_DEFINE_ATTEMPTS
+                );
             }
         }
     }
+    state.handler_class.clone()
+}
+
+fn ensure_installed_inner() -> Result<()> {
+    let Some(handler_class) = handler_class() else {
+        return Ok(());
+    };
 
     // Find the live server connection.
     let Some(connection) = current_connection()? else {
@@ -119,7 +121,7 @@ fn ensure_installed_inner() -> anyhow::Result<()> {
         }
     }
 
-    install_on(&connection)?;
+    install_on(&connection, &handler_class)?;
     // `replace` returns the previous connection, if any — a `Some` means this
     // is a *re*-install onto a fresh connection (a server change / reconnect),
     // not the first install, so the log says which.
@@ -148,17 +150,17 @@ fn ensure_installed_inner() -> anyhow::Result<()> {
 /// `LinkageError` — so the existing class is reused instead. Either way the
 /// native methods are (re)bound: on reload the previous binding points into the
 /// now-unloaded old library and *must* be replaced.
-fn define_handler() -> anyhow::Result<GlobalRef> {
+fn define_handler() -> Result<GlobalRef> {
     let mut env = env()?;
     let loader = mc_bindings::runtime()?
         .game_class_loader()
-        .ok_or_else(|| anyhow::anyhow!("game class loader not captured yet"))?;
+        .ok_or(mc_bindings::Error::NoClassLoader)?;
 
     let class = match load_existing_handler(&mut env, &loader) {
         Some(existing) => existing,
         None => env
             .define_class(HANDLER_CLASS, loader.as_obj(), HANDLER_BYTECODE)
-            .map_err(|error| describe_jni_error(&mut env, "DefineClass", error))?,
+            .map_err(|error| Error::jni(&mut env, "DefineClass", error))?,
     };
 
     let methods = [
@@ -174,9 +176,13 @@ fn define_handler() -> anyhow::Result<GlobalRef> {
         },
     ];
     env.register_native_methods(&class, &methods)
-        .map_err(|error| describe_jni_error(&mut env, "RegisterNatives", error))?;
+        .map_err(|error| Error::jni(&mut env, "RegisterNatives", error))?;
 
-    Ok(env.new_global_ref(class)?)
+    let global = env
+        .new_global_ref(&class)
+        .map_err(|error| Error::jni(&mut env, "NewGlobalRef", error));
+    let _ = env.delete_local_ref(class);
+    global
 }
 
 /// Returns the `DarkChannelHandler` class if a previous injection already
@@ -201,32 +207,7 @@ fn load_existing_handler<'a>(env: &mut JNIEnv<'a>, loader: &GlobalRef) -> Option
     }
 }
 
-/// Folds the pending Java exception's text into `error`, so a failed JNI call
-/// reports *what* the JVM threw rather than the opaque "Java exception thrown".
-fn describe_jni_error(env: &mut JNIEnv, what: &str, error: jni::errors::Error) -> anyhow::Error {
-    if env.exception_check().unwrap_or(false) {
-        let detail = env
-            .exception_occurred()
-            .ok()
-            .and_then(|throwable| {
-                let _ = env.exception_clear();
-                env.call_method(&throwable, "toString", "()Ljava/lang/String;", &[])
-                    .ok()
-            })
-            .and_then(|value| value.l().ok())
-            .and_then(|obj| {
-                let jstr = JString::from(obj);
-                let text = env.get_string(&jstr).ok()?;
-                Some(text.to_string_lossy().into_owned())
-            });
-        if let Some(detail) = detail {
-            return anyhow::anyhow!("{what} failed: {detail}");
-        }
-    }
-    anyhow::anyhow!("{what} failed: {error}")
-}
-
-fn current_connection() -> anyhow::Result<Option<Connection>> {
+fn current_connection() -> Result<Option<Connection>> {
     Ok(match minecraft().get_connection()? {
         Some(listener) => Some(listener.get_connection()?),
         None => None,
@@ -234,28 +215,24 @@ fn current_connection() -> anyhow::Result<Option<Connection>> {
 }
 
 /// Goes before Minecraft's `packet_handler`, so we see every packet first.
-fn install_on(connection: &Connection) -> anyhow::Result<()> {
-    let handler_class = STATE
-        .lock()
-        .unwrap()
-        .handler_class
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("handler class missing"))?;
-
+fn install_on(connection: &Connection, handler_class: &GlobalRef) -> Result<()> {
     let pipeline = pipeline_of(connection)?;
     if pipeline.get(PIPELINE_NAME)?.is_some() {
         return Ok(());
     }
-    let handler = {
-        let mut env = env()?;
-        env.with_local_frame(4, |env| -> anyhow::Result<Object> {
-            let class = JClass::from(env.new_local_ref(handler_class.as_obj())?);
-            let handler = env.new_object(&class, "()V", &[])?;
-            Object::from_local(&handler)?.ok_or_else(|| anyhow::anyhow!("null handler"))
-        })?
-    };
+    let handler = new_handler(handler_class)?;
     pipeline.add_before(MC_PACKET_HANDLER, PIPELINE_NAME, &handler)?;
     Ok(())
+}
+
+fn new_handler(class: &GlobalRef) -> Result<Object> {
+    let mut env = env()?;
+    let local = env
+        .new_object(class, "()V", &[])
+        .map_err(|error| Error::jni(&mut env, "new DarkChannelHandler()", error))?;
+    let handler = Object::from_local(&local);
+    let _ = env.delete_local_ref(local);
+    handler?.ok_or(Error::Null("new DarkChannelHandler()"))
 }
 
 /// Must run before unload: a handler left on the pipeline would call into
@@ -290,7 +267,7 @@ pub fn teardown() {
     clear_pending_exception();
 }
 
-fn pipeline_of(connection: &Connection) -> anyhow::Result<ChannelPipeline> {
+fn pipeline_of(connection: &Connection) -> Result<ChannelPipeline> {
     Ok(connection.channel()?.pipeline()?)
 }
 
@@ -313,14 +290,7 @@ unsafe extern "system" fn dark_on_outbound(
     _class: jni::sys::jclass,
     packet: jobject,
 ) -> jobject {
-    catch_unwind(AssertUnwindSafe(|| {
-        match unsafe { dispatch(env, packet, false) } {
-            Ok(Dispatch::Replace(replacement)) => replacement,
-            Ok(Dispatch::Drop) => std::ptr::null_mut(),
-            Ok(Dispatch::Forward) | Err(_) => packet,
-        }
-    }))
-    .unwrap_or(packet)
+    forward(env, packet, false)
 }
 
 /// `DarkChannelHandler.onInbound` — dispatches an inbound packet.
@@ -329,14 +299,29 @@ unsafe extern "system" fn dark_on_inbound(
     _class: jni::sys::jclass,
     packet: jobject,
 ) -> jobject {
-    catch_unwind(AssertUnwindSafe(|| {
-        match unsafe { dispatch(env, packet, true) } {
-            Ok(Dispatch::Replace(replacement)) => replacement,
-            Ok(Dispatch::Drop) => std::ptr::null_mut(),
-            Ok(Dispatch::Forward) | Err(_) => packet,
+    forward(env, packet, true)
+}
+
+/// What the Netty callback hands back: the packet, its replacement, or `null` to drop it.
+unsafe fn forward(env: *mut jni::sys::JNIEnv, packet: jobject, inbound: bool) -> jobject {
+    match catch_unwind(AssertUnwindSafe(|| unsafe {
+        dispatch(env, packet, inbound)
+    })) {
+        Ok(Ok(Dispatch::Replace(replacement))) => replacement,
+        Ok(Ok(Dispatch::Drop)) => std::ptr::null_mut(),
+        Ok(Ok(Dispatch::Forward)) => packet,
+        Ok(Err(error)) => {
+            let what = if inbound {
+                "net: inbound packet forwarded untouched"
+            } else {
+                "net: outbound packet forwarded untouched"
+            };
+            crate::error::warn_changed(what, &error);
+            packet
         }
-    }))
-    .unwrap_or(packet)
+        // The panic hook has logged it already.
+        Err(_) => packet,
+    }
 }
 
 /// Wraps a packet for the modules, lets each enabled module's `handle_packet`
@@ -344,15 +329,14 @@ unsafe extern "system" fn dark_on_inbound(
 /// type no module handles — and every error — yields [`Dispatch::Forward`], so
 /// the connection is never disrupted by this layer. `inbound` selects which
 /// `Packet` variants to probe.
-unsafe fn dispatch(
-    env: *mut jni::sys::JNIEnv,
-    packet: jobject,
-    inbound: bool,
-) -> anyhow::Result<Dispatch> {
+unsafe fn dispatch(env: *mut jni::sys::JNIEnv, packet: jobject, inbound: bool) -> Result<Dispatch> {
     if packet.is_null() {
         return Ok(Dispatch::Forward);
     }
-    let env = unsafe { JNIEnv::from_raw(env)? };
+    let mut env = unsafe { JNIEnv::from_raw(env) }.map_err(|error| Error::Jni {
+        call: "JNIEnv::from_raw",
+        reason: error.to_string(),
+    })?;
     let packet_obj = unsafe { JObject::from_raw(packet) };
 
     let built = if inbound {
@@ -369,9 +353,10 @@ unsafe fn dispatch(
         PacketAction::Cancel => Ok(Dispatch::Drop),
         PacketAction::Forward if wrapped != original => {
             let replacement = wrapped.to_object()?;
-            Ok(Dispatch::Replace(
-                env.new_local_ref(replacement.as_obj())?.into_raw(),
-            ))
+            let local = env
+                .new_local_ref(replacement.as_obj())
+                .map_err(|error| Error::jni(&mut env, "NewLocalRef", error))?;
+            Ok(Dispatch::Replace(local.into_raw()))
         }
         PacketAction::Forward => Ok(Dispatch::Forward),
     }

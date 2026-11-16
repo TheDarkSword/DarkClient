@@ -140,13 +140,14 @@ pub fn update() {
     if dt <= 0.0 {
         return;
     }
-    // A failed JNI call here must never abort the frame.
-    let _ = ease_camera(target, dt);
+    if let Err(e) = ease_camera(target, dt) {
+        crate::error::warn_changed("rotation: easing the camera failed", &e);
+    }
 }
 
 /// Reads the player's current rotation, eases it one step toward `target`, and
 /// writes it back.
-fn ease_camera(target: Target, dt: f32) -> anyhow::Result<()> {
+fn ease_camera(target: Target, dt: f32) -> Result<()> {
     let Some(player) = minecraft().player()? else {
         return Ok(());
     };
@@ -155,5 +156,5 @@ fn ease_camera(target: Target, dt: f32) -> anyhow::Result<()> {
     let alpha = 1.0 - (-target.speed * dt).exp();
     let next = current.lerp_towards(target.rotation, alpha);
 
-    Ok(player.set_rotation(next.yaw, next.pitch)?)
+    player.set_rotation(next.yaw, next.pitch)
 }

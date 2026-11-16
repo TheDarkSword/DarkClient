@@ -7,7 +7,7 @@ pub use super::{
     menu_slot, BlockEntityExt, BlockPosExt, ClientLevelExt, DirectionExt, EntityExt, GameModeExt,
     LivingEntityExt, ObjectExt, OptionInstanceExt, SLOT_OFFHAND,
 };
+pub use crate::error::{Error, Result};
 pub use crate::state::minecraft;
+// The explicit `Error` / `Result` above win over the generated ones.
 pub use mc_bindings::*;
-// The generated `Result<T>` must not hide the standard one.
-pub use std::result::Result;

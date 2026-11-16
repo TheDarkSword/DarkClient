@@ -45,11 +45,11 @@ impl NukerModule {
 }
 
 impl Module for NukerModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         // Abort any block still being broken — never leave the server thinking
         // the player is mining after the module is off.
         let had_target = self.target.lock().unwrap().take().is_some();
@@ -61,7 +61,7 @@ impl Module for NukerModule {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         let minecraft = minecraft();
         // Stand down while a menu is open.
         if minecraft.current_screen().is_open() {
@@ -137,11 +137,7 @@ fn in_range(pos: BlockPos, center: BlockPos, range: i32) -> bool {
 }
 
 /// The nearest non-air block within `range` of `center`, if any.
-fn nearest_block(
-    world: &ClientLevel,
-    center: BlockPos,
-    range: i32,
-) -> anyhow::Result<Option<BlockPos>> {
+fn nearest_block(world: &ClientLevel, center: BlockPos, range: i32) -> Result<Option<BlockPos>> {
     let mut best: Option<(BlockPos, i32)> = None;
     let range_sq = range * range;
     for dx in -range..=range {

@@ -358,12 +358,7 @@ fn handle_module_keybind(key: i32) {
             module.get_module_data().name(),
             if enabled { "enabled" } else { "disabled" }
         );
-        if enabled {
-            let _ = module.on_start();
-        } else {
-            let _ = module.on_stop();
-        }
-        module.get_module_data_mut().set_enabled(enabled);
+        client().modules.set_enabled(&mut module, enabled);
         changed = true;
     }
 

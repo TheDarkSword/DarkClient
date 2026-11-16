@@ -7,7 +7,7 @@ mod object;
 mod runtime;
 mod verify;
 
-pub use cx::{Cx, Field, Method};
+pub use cx::{take_exception, Cx, Field, Method};
 pub use error::{Error, Result};
 pub use object::{JavaClass, JavaType, Object};
 pub use runtime::{runtime, Runtime};

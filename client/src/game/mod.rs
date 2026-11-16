@@ -4,11 +4,11 @@ pub mod prelude;
 pub mod render;
 pub mod screen;
 
+use crate::error::{Error, Result};
 use mc_bindings::{
     BarrelBlockEntity, BlockEntity, BlockHitResult, BlockPos, ChestBlockEntity, ClientLevel,
-    Direction, Double, EnderChestBlockEntity, Entity, Integer, InteractionHand, JavaType,
-    LivingEntity, LocalPlayer, MultiPlayerGameMode, Object, OptionInstance, Result,
-    ShulkerBoxBlockEntity, Vec3,
+    Direction, Double, EnderChestBlockEntity, Entity, InteractionHand, JavaType, LivingEntity,
+    LocalPlayer, MultiPlayerGameMode, Object, OptionInstance, ShulkerBoxBlockEntity, Vec3,
 };
 
 pub const SLOT_OFFHAND: i32 = 40;
@@ -53,7 +53,7 @@ impl EntityExt for Entity {
         self.set_y_rot(yaw)?;
         self.set_x_rot(pitch)?;
         self.set_y_rot_o(yaw)?;
-        self.set_x_rot_o(pitch)
+        Ok(self.set_x_rot_o(pitch)?)
     }
 
     fn as_living(&self) -> Option<LivingEntity> {
@@ -92,7 +92,7 @@ pub trait ClientLevelExt {
 
 impl ClientLevelExt for ClientLevel {
     fn is_block_air(&self, pos: BlockPos) -> Result<bool> {
-        self.get_block_state(pos)?.is_air()
+        Ok(self.get_block_state(pos)?.is_air()?)
     }
 }
 
@@ -162,32 +162,22 @@ impl DirectionExt for Direction {
 }
 
 pub trait OptionInstanceExt {
-    fn get_int(&self) -> anyhow::Result<i32>;
-
-    fn get_double(&self) -> anyhow::Result<f64>;
+    fn get_double(&self) -> Result<f64>;
 
     /// Skips `OptionInstance.set`'s validation, so gamma can go past 1 (Fullbright).
-    fn force_double(&self, value: f64) -> anyhow::Result<()>;
+    fn force_double(&self, value: f64) -> Result<()>;
 }
 
 impl OptionInstanceExt for OptionInstance {
-    fn get_int(&self) -> anyhow::Result<i32> {
-        let value = self.get()?;
-        let integer: Integer = value
-            .cast()?
-            .ok_or_else(|| anyhow::anyhow!("option value is not an Integer"))?;
-        Ok(integer.int_value()?)
-    }
-
-    fn get_double(&self) -> anyhow::Result<f64> {
-        let value = self.get()?;
-        let double: Double = value
-            .cast()?
-            .ok_or_else(|| anyhow::anyhow!("option value is not a Double"))?;
+    fn get_double(&self) -> Result<f64> {
+        let double: Double = self.get()?.cast()?.ok_or(Error::WrongType {
+            what: "OptionInstance.value",
+            expected: "Double",
+        })?;
         Ok(double.double_value()?)
     }
 
-    fn force_double(&self, value: f64) -> anyhow::Result<()> {
+    fn force_double(&self, value: f64) -> Result<()> {
         let boxed = Double::value_of(value)?;
         Ok(self.set_value(&boxed)?)
     }

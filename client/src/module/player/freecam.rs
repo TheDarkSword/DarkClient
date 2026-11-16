@@ -59,13 +59,13 @@ impl FreecamModule {
     }
 }
 
-fn player_info(player: &LocalPlayer) -> anyhow::Result<PlayerInfo> {
+fn player_info(player: &LocalPlayer) -> Result<PlayerInfo> {
     player
         .player_info()?
-        .ok_or_else(|| anyhow::anyhow!("LocalPlayer.playerInfo is null"))
+        .ok_or(Error::Null("LocalPlayer.playerInfo"))
 }
 
-fn set_flying(player: &LocalPlayer, flying: bool) -> anyhow::Result<()> {
+fn set_flying(player: &LocalPlayer, flying: bool) -> Result<()> {
     let abilities = player.get_abilities()?;
     abilities.set_flying(flying)?;
     abilities.set_mayfly(flying)?;
@@ -73,18 +73,19 @@ fn set_flying(player: &LocalPlayer, flying: bool) -> anyhow::Result<()> {
 }
 
 /// Delivers a held packet the way `Connection.channelRead` would.
-fn replay(player: &LocalPlayer, packet: &Object) -> anyhow::Result<()> {
+fn replay(player: &LocalPlayer, packet: &Object) -> Result<()> {
     let Some(listener) = player.connection()? else {
         return Ok(());
     };
-    let packet: mc_bindings::Packet = packet
-        .cast()?
-        .ok_or_else(|| anyhow::anyhow!("not a packet"))?;
+    let packet: mc_bindings::Packet = packet.cast()?.ok_or(Error::WrongType {
+        what: "queued PlayerInfo update",
+        expected: "Packet",
+    })?;
     Ok(packet.handle(&listener)?)
 }
 
 impl Module for FreecamModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         let Some(player) = minecraft().player()? else {
             return Ok(());
         };
@@ -110,7 +111,7 @@ impl Module for FreecamModule {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         let Some(state) = self.state.lock().unwrap().take() else {
             return Ok(());
         };
@@ -136,7 +137,7 @@ impl Module for FreecamModule {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         Ok(())
     }
 

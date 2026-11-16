@@ -2,10 +2,10 @@
 //! image Minecraft just finished, egui drawn on top, and the synchronization
 //! that slots our work between Minecraft's last submit and its present.
 
+use crate::error::{Error, Result};
 use crate::graphic::ui_engine::EguiFrame;
-use anyhow::{anyhow, Context};
 use ash::vk;
-use egui_ash_renderer::{Options, Renderer};
+use egui_ash_renderer::{Options, Renderer, RendererError};
 
 /// Overlay frames that may be in flight at once. Each owns a command buffer
 /// and a fence, and lines up with one of the renderer's vertex/index buffer
@@ -70,6 +70,23 @@ pub struct Overlay {
     targets: Option<Targets>,
 }
 
+/// Names the failed call in the error, so the log says which one it was.
+trait VkCall<T> {
+    fn vk(self, call: &'static str) -> Result<T>;
+}
+
+impl<T> VkCall<T> for Result<T, vk::Result> {
+    fn vk(self, call: &'static str) -> Result<T> {
+        self.map_err(|result| Error::Vulkan { call, result })
+    }
+}
+
+impl<T> VkCall<T> for Result<T, RendererError> {
+    fn vk(self, call: &'static str) -> Result<T> {
+        self.map_err(|source| Error::Renderer { call, source })
+    }
+}
+
 fn is_srgb(format: vk::Format) -> bool {
     matches!(
         format,
@@ -80,7 +97,7 @@ fn is_srgb(format: vk::Format) -> bool {
 impl Overlay {
     /// # Safety
     /// `handles` must be live objects of the running game.
-    pub unsafe fn new(handles: &Handles) -> anyhow::Result<Overlay> {
+    pub unsafe fn new(handles: &Handles) -> Result<Overlay> {
         let entry = ash::Entry::from_static_fn(ash::StaticFn {
             get_instance_proc_addr: handles.get_instance_proc_addr,
         });
@@ -106,11 +123,7 @@ impl Overlay {
         }
     }
 
-    unsafe fn create_objects(
-        &mut self,
-        instance: &ash::Instance,
-        handles: &Handles,
-    ) -> anyhow::Result<()> {
+    unsafe fn create_objects(&mut self, instance: &ash::Instance, handles: &Handles) -> Result<()> {
         let attachments = [vk::AttachmentDescription::default()
             .format(self.format)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -137,31 +150,43 @@ impl Overlay {
             .dst_access_mask(
                 vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
             )];
-        self.render_pass = self.device.create_render_pass(
-            &vk::RenderPassCreateInfo::default()
-                .attachments(&attachments)
-                .subpasses(&subpasses)
-                .dependencies(&dependencies),
-            None,
-        )?;
-
-        self.command_pool = self.device.create_command_pool(
-            &vk::CommandPoolCreateInfo::default()
-                .queue_family_index(handles.queue_family)
-                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER),
-            None,
-        )?;
-        let command_buffers = self.device.allocate_command_buffers(
-            &vk::CommandBufferAllocateInfo::default()
-                .command_pool(self.command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .command_buffer_count(SLOTS as u32),
-        )?;
-        for command_buffer in command_buffers {
-            let fence = self.device.create_fence(
-                &vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED),
+        self.render_pass = self
+            .device
+            .create_render_pass(
+                &vk::RenderPassCreateInfo::default()
+                    .attachments(&attachments)
+                    .subpasses(&subpasses)
+                    .dependencies(&dependencies),
                 None,
-            )?;
+            )
+            .vk("vkCreateRenderPass")?;
+
+        self.command_pool = self
+            .device
+            .create_command_pool(
+                &vk::CommandPoolCreateInfo::default()
+                    .queue_family_index(handles.queue_family)
+                    .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER),
+                None,
+            )
+            .vk("vkCreateCommandPool")?;
+        let command_buffers = self
+            .device
+            .allocate_command_buffers(
+                &vk::CommandBufferAllocateInfo::default()
+                    .command_pool(self.command_pool)
+                    .level(vk::CommandBufferLevel::PRIMARY)
+                    .command_buffer_count(SLOTS as u32),
+            )
+            .vk("vkAllocateCommandBuffers")?;
+        for command_buffer in command_buffers {
+            let fence = self
+                .device
+                .create_fence(
+                    &vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED),
+                    None,
+                )
+                .vk("vkCreateFence")?;
             self.slots.push(Slot {
                 command_buffer,
                 fence,
@@ -180,7 +205,7 @@ impl Overlay {
                     ..Default::default()
                 },
             )
-            .context("creating the egui Vulkan renderer")?,
+            .vk("creation")?,
         );
         Ok(())
     }
@@ -208,14 +233,17 @@ impl Overlay {
         queue: vk::Queue,
         swapchain: vk::SwapchainKHR,
         extent: vk::Extent2D,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         if let Some(old) = self.targets.take() {
             // The old semaphores may still be waited on by a pending present.
-            self.device.queue_wait_idle(queue)?;
+            self.device.queue_wait_idle(queue).vk("vkQueueWaitIdle")?;
             old.destroy(&self.device);
         }
 
-        let images = self.swapchain_fn.get_swapchain_images(swapchain)?;
+        let images = self
+            .swapchain_fn
+            .get_swapchain_images(swapchain)
+            .vk("vkGetSwapchainImagesKHR")?;
         let mut targets = Targets {
             swapchain,
             extent,
@@ -231,43 +259,45 @@ impl Overlay {
         Ok(())
     }
 
-    unsafe fn fill_targets(
-        &self,
-        targets: &mut Targets,
-        images: &[vk::Image],
-    ) -> anyhow::Result<()> {
+    unsafe fn fill_targets(&self, targets: &mut Targets, images: &[vk::Image]) -> Result<()> {
         for &image in images {
-            let view = self.device.create_image_view(
-                &vk::ImageViewCreateInfo::default()
-                    .image(image)
-                    .view_type(vk::ImageViewType::TYPE_2D)
-                    .format(self.format)
-                    .subresource_range(
-                        vk::ImageSubresourceRange::default()
-                            .aspect_mask(vk::ImageAspectFlags::COLOR)
-                            .level_count(1)
-                            .layer_count(1),
-                    ),
-                None,
-            )?;
+            let view = self
+                .device
+                .create_image_view(
+                    &vk::ImageViewCreateInfo::default()
+                        .image(image)
+                        .view_type(vk::ImageViewType::TYPE_2D)
+                        .format(self.format)
+                        .subresource_range(
+                            vk::ImageSubresourceRange::default()
+                                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                                .level_count(1)
+                                .layer_count(1),
+                        ),
+                    None,
+                )
+                .vk("vkCreateImageView")?;
             targets.views.push(view);
 
             let attachments = [view];
             targets.framebuffers.push(
-                self.device.create_framebuffer(
-                    &vk::FramebufferCreateInfo::default()
-                        .render_pass(self.render_pass)
-                        .attachments(&attachments)
-                        .width(targets.extent.width)
-                        .height(targets.extent.height)
-                        .layers(1),
-                    None,
-                )?,
+                self.device
+                    .create_framebuffer(
+                        &vk::FramebufferCreateInfo::default()
+                            .render_pass(self.render_pass)
+                            .attachments(&attachments)
+                            .width(targets.extent.width)
+                            .height(targets.extent.height)
+                            .layers(1),
+                        None,
+                    )
+                    .vk("vkCreateFramebuffer")?,
             );
 
             targets.semaphores.push(
                 self.device
-                    .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?,
+                    .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
+                    .vk("vkCreateSemaphore")?,
             );
         }
         Ok(())
@@ -286,41 +316,46 @@ impl Overlay {
         index: u32,
         waits: &[vk::Semaphore],
         frame: &EguiFrame,
-    ) -> anyhow::Result<Option<vk::Semaphore>> {
+    ) -> Result<Option<vk::Semaphore>> {
         let renderer = self
             .renderer
             .as_mut()
-            .ok_or_else(|| anyhow!("renderer missing"))?;
+            .ok_or(Error::OverlayState("renderer"))?;
         let targets = self
             .targets
             .as_ref()
-            .ok_or_else(|| anyhow!("no swapchain targets"))?;
+            .ok_or(Error::OverlayState("swapchain targets"))?;
 
         if !frame.textures_delta.set.is_empty() {
-            renderer.set_textures(queue, self.command_pool, &frame.textures_delta.set)?;
+            renderer
+                .set_textures(queue, self.command_pool, &frame.textures_delta.set)
+                .vk("set_textures")?;
         }
 
         let mut signalled = None;
         if !frame.primitives.is_empty() {
-            let index = index as usize;
             let framebuffer = *targets
                 .framebuffers
-                .get(index)
-                .ok_or_else(|| anyhow!("image index {index} out of range"))?;
-            let semaphore = targets.semaphores[index];
+                .get(index as usize)
+                .ok_or(Error::SwapchainImage(index))?;
+            let semaphore = targets.semaphores[index as usize];
             let slot = &self.slots[self.next_slot];
 
             // The slot's command buffer and the renderer's matching vertex
             // buffers are free again once its previous submit has finished.
             self.device
-                .wait_for_fences(&[slot.fence], true, FENCE_TIMEOUT_NS)?;
+                .wait_for_fences(&[slot.fence], true, FENCE_TIMEOUT_NS)
+                .vk("vkWaitForFences")?;
             self.device
-                .reset_command_buffer(slot.command_buffer, vk::CommandBufferResetFlags::empty())?;
-            self.device.begin_command_buffer(
-                slot.command_buffer,
-                &vk::CommandBufferBeginInfo::default()
-                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
-            )?;
+                .reset_command_buffer(slot.command_buffer, vk::CommandBufferResetFlags::empty())
+                .vk("vkResetCommandBuffer")?;
+            self.device
+                .begin_command_buffer(
+                    slot.command_buffer,
+                    &vk::CommandBufferBeginInfo::default()
+                        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+                )
+                .vk("vkBeginCommandBuffer")?;
             self.device.cmd_begin_render_pass(
                 slot.command_buffer,
                 &vk::RenderPassBeginInfo::default()
@@ -332,14 +367,18 @@ impl Overlay {
                     }),
                 vk::SubpassContents::INLINE,
             );
-            renderer.cmd_draw(
-                slot.command_buffer,
-                targets.extent,
-                frame.pixels_per_point,
-                &frame.primitives,
-            )?;
+            renderer
+                .cmd_draw(
+                    slot.command_buffer,
+                    targets.extent,
+                    frame.pixels_per_point,
+                    &frame.primitives,
+                )
+                .vk("cmd_draw")?;
             self.device.cmd_end_render_pass(slot.command_buffer);
-            self.device.end_command_buffer(slot.command_buffer)?;
+            self.device
+                .end_command_buffer(slot.command_buffer)
+                .vk("vkEndCommandBuffer")?;
 
             let stages = vec![vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT; waits.len()];
             let command_buffers = [slot.command_buffer];
@@ -349,8 +388,12 @@ impl Overlay {
                 .wait_dst_stage_mask(&stages)
                 .command_buffers(&command_buffers)
                 .signal_semaphores(&signals);
-            self.device.reset_fences(&[slot.fence])?;
-            self.device.queue_submit(queue, &[submit], slot.fence)?;
+            self.device
+                .reset_fences(&[slot.fence])
+                .vk("vkResetFences")?;
+            self.device
+                .queue_submit(queue, &[submit], slot.fence)
+                .vk("vkQueueSubmit")?;
             self.next_slot = (self.next_slot + 1) % SLOTS;
             signalled = Some(semaphore);
         }
@@ -359,8 +402,11 @@ impl Overlay {
             // Freed textures may still be sampled by frames in flight.
             let fences: Vec<vk::Fence> = self.slots.iter().map(|slot| slot.fence).collect();
             self.device
-                .wait_for_fences(&fences, true, FENCE_TIMEOUT_NS)?;
-            renderer.free_textures(&frame.textures_delta.free)?;
+                .wait_for_fences(&fences, true, FENCE_TIMEOUT_NS)
+                .vk("vkWaitForFences")?;
+            renderer
+                .free_textures(&frame.textures_delta.free)
+                .vk("free_textures")?;
         }
 
         Ok(signalled)

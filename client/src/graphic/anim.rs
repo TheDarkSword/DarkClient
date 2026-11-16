@@ -35,7 +35,6 @@ const STALE_AFTER: f64 = 3.0;
 /// Easing curve applied to tweened progress.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Easing {
-    Linear,
     In,
     Out,
     InOut,
@@ -46,7 +45,6 @@ impl Easing {
     pub fn apply(self, t: f32) -> f32 {
         let t = t.clamp(0.0, 1.0);
         match self {
-            Easing::Linear => t,
             Easing::In => t * t * t,
             Easing::Out => 1.0 - (1.0 - t).powi(3),
             Easing::InOut => {
@@ -74,11 +72,6 @@ impl SpringCfg {
     pub const PANEL: SpringCfg = SpringCfg {
         stiffness: 320.0,
         damping: 24.0,
-    };
-    /// Quick, snappy motion — small UI reactions.
-    pub const SNAPPY: SpringCfg = SpringCfg {
-        stiffness: 520.0,
-        damping: 32.0,
     };
 }
 
@@ -158,11 +151,6 @@ fn sample(t: &Tween, now: f64) -> f32 {
 }
 
 // --- Springs ---------------------------------------------------------------
-
-/// Spring-smooths a scalar toward `target`.
-pub fn spring(ctx: &Context, id: Id, target: f32, cfg: SpringCfg) -> f32 {
-    spring_vec2(ctx, id, Vec2::new(target, 0.0), cfg).x
-}
 
 /// Spring-smooths a position toward `target`.
 pub fn spring_pos(ctx: &Context, id: Id, target: Pos2, cfg: SpringCfg) -> Pos2 {

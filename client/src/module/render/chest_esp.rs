@@ -1,3 +1,4 @@
+use crate::error::Result;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 
 /// Highlights containers — chests, trapped chests, ender chests, barrels and
@@ -36,15 +37,15 @@ impl ChestEspModule {
 }
 
 impl Module for ChestEspModule {
-    fn on_start(&self) -> anyhow::Result<()> {
+    fn on_start(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_stop(&self) -> anyhow::Result<()> {
+    fn on_stop(&self) -> Result<()> {
         Ok(())
     }
 
-    fn on_tick(&self) -> anyhow::Result<()> {
+    fn on_tick(&self) -> Result<()> {
         Ok(())
     }
 
